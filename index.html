@@ -6,6 +6,8 @@
 <title>Chandrawati Hospital — IPD Management System</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Playfair+Display:wght@600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 <style>
 :root{
   --bg:#0d1117;--surface:#161b22;--surface2:#21262d;--surface3:#2d333b;
@@ -363,12 +365,38 @@ html,body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text
 <div class="modal-overlay" id="adminModal">
   <div class="modal wide">
     <div class="modal-hdr">
-      <h3>⚙️ Admin Panel — Account Management</h3>
+      <h3>⚙️ Admin Panel</h3>
       <button class="modal-close" onclick="closeModal('adminModal')">✕</button>
     </div>
     <div class="modal-body">
+
+      <!-- FIREBASE SYNC -->
+      <div class="form-section-title" style="color:#f9a825;">☁️ Cloud Sync (Firebase)</div>
+      <div id="fbStatusBox" style="padding:10px 14px;border-radius:8px;margin-bottom:10px;font-size:12px;background:var(--surface2);border:1px solid var(--border);">
+        <span id="fbStatusText">⚪ Not configured — data is local only (not synced across devices)</span>
+      </div>
+      <div style="background:rgba(249,168,37,0.07);border:1px solid rgba(249,168,37,0.3);border-radius:8px;padding:11px 13px;margin-bottom:12px;font-size:12px;color:#f9a825;line-height:1.8;">
+        <b>One-time free setup:</b><br>
+        1. Go to <b>console.firebase.google.com</b> → New project → Add Web app<br>
+        2. Build → Realtime Database → Create database → <b>Start in test mode</b><br>
+        3. Copy your config keys below and click <b>Save &amp; Connect</b><br>
+        4. All devices (laptop, phone, tablet) will sync automatically ✅
+      </div>
+      <div class="form-grid">
+        <div class="form-group"><label class="form-label">API Key *</label><input class="form-input" id="fb_apiKey" placeholder="AIzaSy..."></div>
+        <div class="form-group"><label class="form-label">Database URL *</label><input class="form-input" id="fb_dbUrl" placeholder="https://xxx-default-rtdb.firebaseio.com"></div>
+        <div class="form-group"><label class="form-label">Auth Domain</label><input class="form-input" id="fb_authDomain" placeholder="your-project.firebaseapp.com"></div>
+        <div class="form-group"><label class="form-label">Project ID</label><input class="form-input" id="fb_projectId" placeholder="your-project-id"></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap;">
+        <button class="btn btn-primary btn-sm" onclick="fbSaveConfig()">💾 Save &amp; Connect</button>
+        <button class="btn btn-secondary btn-sm" onclick="fbTestConnection()">🔌 Test Connection</button>
+        <button class="btn btn-secondary btn-sm" onclick="fbClearConfig()" style="color:var(--danger);border-color:var(--danger);">✕ Disconnect</button>
+      </div>
+
+      <!-- ACCOUNTS -->
+      <div class="form-section-title">👥 Account Management</div>
       <div style="margin-bottom:16px;">
-        <div class="form-section-title">Add New Account</div>
         <div class="form-grid">
           <div class="form-group"><label class="form-label">User ID *</label><input class="form-input" id="adm_id" placeholder="e.g. dr_sharma"></div>
           <div class="form-group"><label class="form-label">Display Name *</label><input class="form-input" id="adm_name" placeholder="e.g. Dr. Sharma"></div>
@@ -383,8 +411,8 @@ html,body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text
         </div>
         <button class="btn btn-primary btn-sm" onclick="adminAddAccount()" style="margin-top:8px;">+ Add Account</button>
       </div>
-      <div class="form-section-title">Current Accounts</div>
       <div id="adminAccountList"></div>
+
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('adminModal')">Close</button>
@@ -404,6 +432,7 @@ html,body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text
   <div class="topbar-right">
     <div class="topbar-clock" id="clockEl">--:--:--</div>
     <div id="currentUserBadge" style="font-size:11px;color:var(--text2);padding:4px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:20px;"></div>
+    <div id="syncBadge" onclick="openAdminPanel()" title="Cloud sync — click to configure" style="cursor:pointer;font-size:11px;padding:4px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:20px;color:var(--text3);">⚪ Local</div>
     <div class="critical-badge" id="criticalTopBadge" onclick="switchView('ipd')">0 Critical</div>
     <!-- Role Switcher -->
     <div id="roleSwitcherWrap" style="display:flex;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:2px;gap:2px;">
@@ -1440,26 +1469,147 @@ function analyzePatient(p) {
 // ============================================================
 // PERSISTENCE
 // ============================================================
+// ============================================================
+// FIREBASE SYNC ENGINE
+// ============================================================
+let fbApp = null, fbDb = null, fbConnected = false;
+let fbWriteTimer = null, fbListenerActive = false;
+const FB_CFG_KEY = 'cwh_fb_config_v1';
+const FB_PT_PATH  = 'cwh_his/patients';
+
+function fbGetConfig() {
+  try { return JSON.parse(localStorage.getItem(FB_CFG_KEY) || 'null'); } catch(e) { return null; }
+}
+
+function fbSetStatus(icon, text, color) {
+  const badge = document.getElementById('syncBadge');
+  const box   = document.getElementById('fbStatusText');
+  if(badge) { badge.textContent = icon+' '+text; badge.style.color = color||'var(--text3)'; badge.style.borderColor = color||'var(--border)'; }
+  if(box)   { box.textContent = icon+' '+text; }
+}
+
+function fbInit(cfg) {
+  try {
+    // Delete old app if exists
+    if(fbApp) { try { fbApp.delete(); } catch(e){} fbApp=null; fbDb=null; fbListenerActive=false; }
+    fbApp = firebase.initializeApp(cfg, 'cwh_'+Date.now());
+    fbDb  = firebase.database(fbApp);
+    // Connectivity monitor
+    fbDb.ref('.info/connected').on('value', snap => {
+      fbConnected = snap.val() === true;
+      fbSetStatus(fbConnected?'🟢':'🟠', fbConnected?'Synced':'Offline (local)', fbConnected?'#56d364':'#e3b341');
+      if(fbConnected && !fbListenerActive) fbStartListener();
+    });
+    return true;
+  } catch(e) {
+    fbSetStatus('❌','Error: '+e.message,'#f85149');
+    return false;
+  }
+}
+
+function fbStartListener() {
+  if(!fbDb || fbListenerActive) return;
+  fbListenerActive = true;
+  fbDb.ref(FB_PT_PATH).on('value', snap => {
+    const raw = snap.val();
+    if(raw !== null) {
+      const incoming = Array.isArray(raw) ? raw : Object.values(raw);
+      patients = incoming.filter(p => p && p.id);
+      patients.forEach(p => {
+        if(!p.vitalsHistory)   p.vitalsHistory = [];
+        if(!p.labPanels)       p.labPanels = [];
+        if(!p.scannedReports)  p.scannedReports = [];
+        if(!p.medications)     p.medications = [];
+        if(!p.notes)           p.notes = [];
+        if(!p.dischargeInfo)   p.dischargeInfo = null;
+      });
+      try { localStorage.setItem(LS_KEY, JSON.stringify(patients)); } catch(e) {}
+      renderDashboard(); renderPatientList(); updateBadges();
+      if(currentView==='nursing')   renderNursing();
+      if(currentView==='discharged') renderDischargedList();
+      if(currentView==='ipd' && selectedPatientId) renderPatientDetail(selectedPatientId);
+    }
+    fbSetStatus('🟢','Synced','#56d364');
+  }, err => { fbSetStatus('❌','Sync error','#f85149'); });
+}
+
 function saveData() {
-  try { localStorage.setItem(LS_KEY, JSON.stringify(patients)); } catch(e) { console.warn('LS save failed:', e); }
+  // Always write localStorage instantly
+  try { localStorage.setItem(LS_KEY, JSON.stringify(patients)); } catch(e) {}
+  // Debounced Firebase write
+  if(fbDb && fbConnected) {
+    clearTimeout(fbWriteTimer);
+    fbSetStatus('🔄','Saving...','#58a6ff');
+    fbWriteTimer = setTimeout(() => {
+      fbDb.ref(FB_PT_PATH).set(patients)
+        .then(()  => fbSetStatus('🟢','Synced','#56d364'))
+        .catch(e  => fbSetStatus('❌','Save failed','#f85149'));
+    }, 600);
+  }
 }
 
 function loadData() {
+  // 1. Load localStorage immediately (fast start)
   try {
     const raw = localStorage.getItem(LS_KEY);
     if(raw) patients = JSON.parse(raw);
   } catch(e) { patients = []; }
   if(!Array.isArray(patients)) patients = [];
-  // Ensure all patients have proper structure
   patients.forEach(p => {
-    if(!p.vitalsHistory) p.vitalsHistory = [];
-    if(!p.labPanels) p.labPanels = [];
-    if(!p.scannedReports) p.scannedReports = [];
-    if(!p.medications) p.medications = [];
-    if(!p.notes) p.notes = [];
-    if(!p.dischargeInfo) p.dischargeInfo = null;
+    if(!p.vitalsHistory)   p.vitalsHistory = [];
+    if(!p.labPanels)       p.labPanels = [];
+    if(!p.scannedReports)  p.scannedReports = [];
+    if(!p.medications)     p.medications = [];
+    if(!p.notes)           p.notes = [];
+    if(!p.dischargeInfo)   p.dischargeInfo = null;
   });
+  // 2. Connect Firebase if configured
+  const cfg = fbGetConfig();
+  if(cfg && cfg.apiKey && cfg.databaseURL) {
+    fbSetStatus('🟡','Connecting...','#e3b341');
+    setTimeout(() => fbInit(cfg), 50);
+  }
 }
+
+// Admin-panel Firebase functions
+function fbSaveConfig() {
+  const apiKey      = (document.getElementById('fb_apiKey')?.value||'').trim();
+  const databaseURL = (document.getElementById('fb_dbUrl')?.value||'').trim();
+  const authDomain  = (document.getElementById('fb_authDomain')?.value||'').trim();
+  const projectId   = (document.getElementById('fb_projectId')?.value||'').trim();
+  if(!apiKey || !databaseURL) { alert('API Key and Database URL are required.'); return; }
+  const cfg = { apiKey, databaseURL, authDomain, projectId };
+  localStorage.setItem(FB_CFG_KEY, JSON.stringify(cfg));
+  fbSetStatus('🟡','Connecting...','#e3b341');
+  fbInit(cfg);
+}
+
+function fbTestConnection() {
+  if(!fbDb || !fbConnected) { alert('Not connected. Save your config first.'); return; }
+  fbDb.ref(FB_PT_PATH).once('value')
+    .then(s => { const d=s.val(); alert('✅ Connected! Records in database: '+(d ? (Array.isArray(d)?d.length:Object.keys(d).length) : 0)); })
+    .catch(e => alert('❌ Error: '+e.message));
+}
+
+function fbClearConfig() {
+  if(!confirm('Disconnect Firebase? App will use local storage only.')) return;
+  localStorage.removeItem(FB_CFG_KEY);
+  if(fbApp) { try { fbApp.delete(); } catch(e){} }
+  fbApp=null; fbDb=null; fbConnected=false; fbListenerActive=false;
+  fbSetStatus('⚪','Local only','var(--text3)');
+  ['fb_apiKey','fb_dbUrl','fb_authDomain','fb_projectId'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
+}
+
+function fbPopulateFields() {
+  const cfg = fbGetConfig();
+  if(!cfg) return;
+  if(document.getElementById('fb_apiKey'))      document.getElementById('fb_apiKey').value      = cfg.apiKey||'';
+  if(document.getElementById('fb_dbUrl'))       document.getElementById('fb_dbUrl').value       = cfg.databaseURL||'';
+  if(document.getElementById('fb_authDomain'))  document.getElementById('fb_authDomain').value  = cfg.authDomain||'';
+  if(document.getElementById('fb_projectId'))   document.getElementById('fb_projectId').value   = cfg.projectId||'';
+}
+
+
 
 // ============================================================
 // PATIENT HELPERS
@@ -3514,6 +3664,7 @@ function updateRoleUI() {
 // ============================================================
 function openAdminPanel() {
   renderAdminAccountList();
+  fbPopulateFields();
   document.getElementById('adminModal').classList.add('open');
 }
 
