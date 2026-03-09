@@ -391,7 +391,11 @@ html,body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text
       <div style="display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap;">
         <button class="btn btn-primary btn-sm" onclick="fbSaveConfig()">💾 Save &amp; Connect</button>
         <button class="btn btn-secondary btn-sm" onclick="fbTestConnection()">🔌 Test Connection</button>
+        <button class="btn btn-secondary btn-sm" onclick="fbExportFile()" style="background:rgba(86,211,100,0.15);border-color:#56d364;color:#56d364;">📥 Bake Config &amp; Download File</button>
         <button class="btn btn-secondary btn-sm" onclick="fbClearConfig()" style="color:var(--danger);border-color:var(--danger);">✕ Disconnect</button>
+      </div>
+      <div id="fbExportNote" style="display:none;padding:9px 13px;border-radius:7px;background:rgba(86,211,100,0.1);border:1px solid #56d364;font-size:12px;color:#56d364;margin-bottom:14px;">
+        ✅ File downloaded with config baked in. Upload this new file to GitHub Pages — every device (laptop, phone, tablet) will auto-connect to Firebase with no setup needed.
       </div>
 
       <!-- ACCOUNTS -->
@@ -1477,7 +1481,14 @@ let fbWriteTimer = null, fbListenerActive = false;
 const FB_CFG_KEY = 'cwh_fb_config_v1';
 const FB_PT_PATH  = 'cwh_his/patients';
 
+// ── BAKED-IN CONFIG (set via Admin → Export to File) ──────────────────────────
+// When this is filled, ALL devices auto-connect without any manual setup.
+const FIREBASE_BAKED_CONFIG = null; // e.g. { apiKey:"...", databaseURL:"..." }
+// ─────────────────────────────────────────────────────────────────────────────
+
 function fbGetConfig() {
+  // Priority: baked-in → localStorage
+  if(FIREBASE_BAKED_CONFIG && FIREBASE_BAKED_CONFIG.apiKey) return FIREBASE_BAKED_CONFIG;
   try { return JSON.parse(localStorage.getItem(FB_CFG_KEY) || 'null'); } catch(e) { return null; }
 }
 
@@ -1598,6 +1609,36 @@ function fbClearConfig() {
   fbApp=null; fbDb=null; fbConnected=false; fbListenerActive=false;
   fbSetStatus('⚪','Local only','var(--text3)');
   ['fb_apiKey','fb_dbUrl','fb_authDomain','fb_projectId'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
+}
+
+function fbExportFile() {
+  const cfg = fbGetConfig();
+  if(!cfg || !cfg.apiKey) { alert('No Firebase config saved. Please fill in and Save & Connect first.'); return; }
+  // Read current HTML source and replace the BAKED config line
+  const xhr = new XMLHttpRequest();
+  xhr.open('GET', window.location.href, true);
+  xhr.onload = function() {
+    let html = xhr.responseText;
+    const configJson = JSON.stringify(cfg);
+    // Replace the null placeholder with actual config
+    html = html.replace(
+      /const FIREBASE_BAKED_CONFIG = null;.*?\/\/ ─{10,}/s,
+      `const FIREBASE_BAKED_CONFIG = ${configJson}; // AUTO-BAKED — all devices auto-connect\n// ─────────────────────────────────────────────────────────────────────────────`
+    );
+    const blob = new Blob([html], { type: 'text/html' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'chandrawati_hospital_his_synced.html';
+    a.click();
+    URL.revokeObjectURL(a.href);
+    const note = document.getElementById('fbExportNote');
+    if(note) note.style.display = 'block';
+  };
+  xhr.onerror = function() {
+    // Fallback: manually inject using the script content approach
+    alert('Could not fetch file automatically. Please re-download the file from GitHub and use the setup steps.');
+  };
+  xhr.send();
 }
 
 function fbPopulateFields() {
