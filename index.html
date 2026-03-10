@@ -436,7 +436,7 @@ html,body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text
   <div class="topbar-right">
     <div class="topbar-clock" id="clockEl">--:--:--</div>
     <div id="currentUserBadge" style="font-size:11px;color:var(--text2);padding:4px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:20px;"></div>
-    <div id="syncBadge" onclick="openAdminPanel()" title="Cloud sync — click to configure" style="cursor:pointer;font-size:11px;padding:4px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:20px;color:var(--text3);">⚪ Local</div>
+    <div id="syncBadge" title="Cloud sync status" style="font-size:11px;padding:4px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:20px;color:var(--text3);">⚪ Local</div>
     <div class="critical-badge" id="criticalTopBadge" onclick="switchView('ipd')">0 Critical</div>
     <!-- Role Switcher -->
     <div id="roleSwitcherWrap" style="display:flex;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:2px;gap:2px;">
@@ -1483,7 +1483,7 @@ const FB_PT_PATH  = 'cwh_his/patients';
 
 // ── BAKED-IN CONFIG (set via Admin → Export to File) ──────────────────────────
 // When this is filled, ALL devices auto-connect without any manual setup.
-const FIREBASE_BAKED_CONFIG = {"apiKey":"AIzaSyBQo7aytTJUVxuS9qFHh4C6VDeVQOPBGVY","databaseURL":"https://chandrawati-his-default-rtdb.asia-southeast1.firebasedatabase.app","authDomain":"","projectId":""}; // AUTO-BAKED — all devices auto-connect
+const FIREBASE_BAKED_CONFIG = null; // e.g. { apiKey:"...", databaseURL:"..." }
 // ─────────────────────────────────────────────────────────────────────────────
 
 function fbGetConfig() {
@@ -2150,62 +2150,74 @@ function initVitalsCharts(id) {
   const history = (p.vitalsHistory||[]).slice(-24);
   const labels = history.map(v => {
     const d = new Date(v.timestamp);
-    return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+    return isNaN(d) ? '' : `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
   });
 
   const chartDef = [
-    {id:`chart_hr_${id}`, key:'hr', color:'#f85149', label:'HR (bpm)', refMin:60, refMax:160},
-    {id:`chart_spo2_${id}`, key:'spo2', color:'#58a6ff', label:'SpO₂ (%)', refMin:88, refMax:100},
-    {id:`chart_temp_${id}`, key:'temp', color:'#e3b341', label:'Temp (°C)', refMin:35, refMax:40},
-    {id:`chart_rr_${id}`, key:'rr', color:'#56d364', label:'RR (/min)', refMin:8, refMax:60},
-    {id:`chart_rbs_${id}`, key:'rbs', color:'#e85d9b', label:'RBS (mg/dL)', refMin:50, refMax:200},
+    {id:`chart_hr_${id}`,   key:'hr',   color:'#f85149', label:'HR (bpm)',    refMin:60,  refMax:160},
+    {id:`chart_spo2_${id}`, key:'spo2', color:'#58a6ff', label:'SpO₂ (%)',   refMin:88,  refMax:100},
+    {id:`chart_temp_${id}`, key:'temp', color:'#e3b341', label:'Temp (°C)',   refMin:35,  refMax:40 },
+    {id:`chart_rr_${id}`,   key:'rr',   color:'#56d364', label:'RR (/min)',   refMin:8,   refMax:60 },
+    {id:`chart_rbs_${id}`,  key:'rbs',  color:'#e85d9b', label:'RBS (mg/dL)',refMin:60,  refMax:180},
   ];
 
   chartDef.forEach(cd => {
     const canvas = document.getElementById(cd.id);
     if(!canvas) return;
-    if(vitalsCharts[cd.id]) { vitalsCharts[cd.id].destroy(); delete vitalsCharts[cd.id]; }
-    const data = history.map(v => v[cd.key] || null);
-    const validData = data.filter(Boolean);
-    if(validData.length === 0) { canvas.parentElement.innerHTML += '<div style="font-size:11px;color:var(--text3);text-align:center;padding:20px;">No data</div>'; return; }
+    // Destroy old chart instance cleanly
+    if(vitalsCharts[cd.id]) { try { vitalsCharts[cd.id].destroy(); } catch(e){} delete vitalsCharts[cd.id]; }
+    // Remove any stale "No data" overlays
+    const parent = canvas.parentElement;
+    Array.from(parent.querySelectorAll('.no-data-msg')).forEach(el => el.remove());
+
+    const data = history.map(v => (v[cd.key] != null && v[cd.key] !== '') ? Number(v[cd.key]) : null);
+    const validData = data.filter(x => x !== null);
+    if(validData.length === 0) {
+      const msg = document.createElement('div');
+      msg.className = 'no-data-msg';
+      msg.style.cssText = 'font-size:11px;color:var(--text3);text-align:center;padding:20px;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);';
+      msg.textContent = 'No data recorded';
+      parent.appendChild(msg);
+      return;
+    }
     const yMin = Math.max(0, Math.min(cd.refMin - 10, ...validData) - 5);
     const yMax = Math.max(cd.refMax + 10, ...validData) + 5;
     vitalsCharts[cd.id] = new Chart(canvas, {
-      type:'line',
-      data:{ labels, datasets:[{
-        label:cd.label, data, borderColor:cd.color, backgroundColor:cd.color+'22',
-        tension:0.4, pointRadius:4, fill:true, borderWidth:2,
-        spanGaps: true
+      type: 'line',
+      data: { labels, datasets:[{
+        label: cd.label, data, borderColor: cd.color, backgroundColor: cd.color+'22',
+        tension: 0.4, pointRadius: 4, fill: true, borderWidth: 2, spanGaps: true
       }]},
-      options:{
-        responsive:true, maintainAspectRatio:false,
-        plugins:{ legend:{display:false},
-          annotation:{ annotations:{ refMin:{ type:'line', yMin:cd.refMin, yMax:cd.refMin, borderColor:cd.color+'66', borderDash:[4,4], borderWidth:1 } } }
-        },
-        scales:{
-          x:{ticks:{color:'#8b949e',font:{size:9}}, grid:{color:'#21262d'}},
-          y:{ticks:{color:'#8b949e',font:{size:9}}, grid:{color:'#21262d'}, min:yMin, max:yMax}
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend:{display:false} },
+        scales: {
+          x: { ticks:{color:'#8b949e',font:{size:9}}, grid:{color:'#21262d'} },
+          y: { ticks:{color:'#8b949e',font:{size:9}}, grid:{color:'#21262d'}, min:yMin, max:yMax }
         }
       }
     });
   });
 
-  // I/O chart — bar chart
+  // I/O bar chart — use correct field names: ivIntake, oralIntake, ngFeed, urine, drain
   const ioCanvas = document.getElementById(`chart_io_${id}`);
   if(ioCanvas) {
-    if(vitalsCharts[`chart_io_${id}`]) { vitalsCharts[`chart_io_${id}`].destroy(); delete vitalsCharts[`chart_io_${id}`]; }
-    const ioData = history.filter(v => v.urine || v.iv_in || v.oral_in || v.drain || v.other_out);
-    const ioLabels = ioData.map(v => { const d=new Date(v.timestamp); return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; });
-    const totalIn = ioData.map(v => (v.iv_in||0)+(v.oral_in||0));
-    const totalOut = ioData.map(v => (v.urine||0)+(v.drain||0)+(v.other_out||0));
-    if(ioLabels.length > 0) {
+    if(vitalsCharts[`chart_io_${id}`]) { try { vitalsCharts[`chart_io_${id}`].destroy(); } catch(e){} delete vitalsCharts[`chart_io_${id}`]; }
+    const ioParent = ioCanvas.parentElement;
+    Array.from(ioParent.querySelectorAll('.no-data-msg')).forEach(el => el.remove());
+
+    const ioEntries = history.filter(v => v.urine||v.ivIntake||v.oralIntake||v.drain||v.ngFeed);
+    if(ioEntries.length > 0) {
+      const ioLabels  = ioEntries.map(v => { const d=new Date(v.timestamp); return isNaN(d)?'?':`${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; });
+      const totalIn   = ioEntries.map(v => (v.ivIntake||0)+(v.oralIntake||0)+(v.ngFeed||0));
+      const totalOut  = ioEntries.map(v => (v.urine||0)+(v.drain||0));
       vitalsCharts[`chart_io_${id}`] = new Chart(ioCanvas, {
-        type:'bar',
-        data:{ labels: ioLabels, datasets:[
-          {label:'Total In', data:totalIn, backgroundColor:'rgba(33,150,243,0.5)', borderColor:'#2196F3', borderWidth:1},
-          {label:'Total Out', data:totalOut, backgroundColor:'rgba(86,211,100,0.5)', borderColor:'#56d364', borderWidth:1}
+        type: 'bar',
+        data: { labels: ioLabels, datasets:[
+          {label:'Total In (mL)',  data:totalIn,  backgroundColor:'rgba(33,150,243,0.55)', borderColor:'#2196F3', borderWidth:1},
+          {label:'Total Out (mL)', data:totalOut, backgroundColor:'rgba(86,211,100,0.55)', borderColor:'#56d364', borderWidth:1}
         ]},
-        options:{
+        options: {
           responsive:true, maintainAspectRatio:false,
           plugins:{ legend:{display:true, labels:{color:'#8b949e',font:{size:9}}} },
           scales:{
@@ -2215,7 +2227,11 @@ function initVitalsCharts(id) {
         }
       });
     } else {
-      ioCanvas.parentElement.innerHTML += '<div style="font-size:11px;color:var(--text3);text-align:center;padding:20px 0;">No I/O data recorded</div>';
+      const msg = document.createElement('div');
+      msg.className = 'no-data-msg';
+      msg.style.cssText = 'font-size:11px;color:var(--text3);text-align:center;padding:20px;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);';
+      msg.textContent = 'No I/O data recorded';
+      ioParent.appendChild(msg);
     }
   }
 }
@@ -2774,6 +2790,17 @@ function medRemove(patientId, medId) {
   if(!confirm('Remove this medication order?')) return;
   const p = getPatient(patientId);
   if(!p || !p.medications) return;
+  // Log the stopped med before removing
+  const med = p.medications.find(m => m.id === medId);
+  if(med) {
+    if(!p.stoppedMeds) p.stoppedMeds = [];
+    p.stoppedMeds.push({
+      ...med,
+      stoppedAt: new Date().toLocaleString('en-IN'),
+      stoppedDate: new Date().toISOString().split('T')[0],
+      stoppedBy: currentUser ? currentUser.name : 'Unknown'
+    });
+  }
   p.medications = p.medications.filter(m => m.id !== medId);
   saveData();
   renderPatientDetail(patientId);
@@ -3183,30 +3210,36 @@ function getMedsSnapshot(medications) {
 }
 
 function detectMedChanges(patient, targetDate) {
-  // Compare meds ordered today vs meds ordered before today
   const meds = patient.medications || [];
+  const stopped = patient.stoppedMeds || [];
   const changes = [];
   const targetDay = targetDate || new Date().toISOString().split('T')[0];
 
-  meds.forEach(m => {
-    if(!m.ordered) return;
-    // Parse ordered date
-    let orderedDate = '';
+  function parseToDate(str) {
+    if(!str) return '';
     try {
-      const d = new Date(m.ordered);
-      if(!isNaN(d)) orderedDate = d.toISOString().split('T')[0];
-      else {
-        // EN-IN locale format: DD/MM/YYYY HH:MM:SS
-        const parts = m.ordered.split(', ')[0].split('/');
-        if(parts.length === 3) orderedDate = `${parts[2]}-${parts[1].padStart(2,'0')}-${parts[0].padStart(2,'0')}`;
-      }
+      const d = new Date(str);
+      if(!isNaN(d)) return d.toISOString().split('T')[0];
+      const parts = str.split(', ')[0].split('/');
+      if(parts.length === 3) return `${parts[2]}-${parts[1].padStart(2,'0')}-${parts[0].padStart(2,'0')}`;
     } catch(e) {}
-    if(orderedDate === targetDay) {
+    return '';
+  }
+
+  // New orders added today
+  meds.forEach(m => {
+    if(m.ordered && parseToDate(m.ordered) === targetDay) {
       changes.push({ type: 'NEW', med: m });
     }
   });
 
-  // Check for removed meds (would require snapshots - use notes as proxy)
+  // Meds stopped/removed today
+  stopped.forEach(m => {
+    if(m.stoppedDate === targetDay) {
+      changes.push({ type: 'STOPPED', med: m });
+    }
+  });
+
   return changes;
 }
 
@@ -3340,13 +3373,20 @@ function openProgressNote(id) {
   const changesDiv = document.getElementById('pn_changesDisplay');
   if(changes.length) {
     changesDiv.innerHTML = changes.map(c => {
-      return `<div style="padding:6px 10px;background:rgba(227,179,65,0.12);border-radius:6px;margin-bottom:4px;font-size:12px;">
-        ${c.type==='NEW'?'🆕 <b>New order added today:</b>':''} ${c.med.drug} ${c.med.dose} ${c.med.route} ${c.med.frequency}
-        <span style="font-size:11px;color:var(--text3);"> — Ordered: ${c.med.ordered}</span>
-      </div>`;
+      if(c.type === 'NEW') {
+        return `<div style="padding:6px 10px;background:rgba(86,211,100,0.1);border-left:3px solid #56d364;border-radius:6px;margin-bottom:4px;font-size:12px;">
+          🆕 <b style="color:#56d364;">NEW:</b> ${c.med.drug} ${c.med.dose} — ${c.med.route} ${c.med.frequency}
+          <span style="font-size:11px;color:var(--text3);"> — Ordered: ${c.med.ordered||'today'}</span>
+        </div>`;
+      } else {
+        return `<div style="padding:6px 10px;background:rgba(248,81,73,0.1);border-left:3px solid #f85149;border-radius:6px;margin-bottom:4px;font-size:12px;">
+          🛑 <b style="color:#f85149;">STOPPED:</b> ${c.med.drug} ${c.med.dose} — ${c.med.route} ${c.med.frequency}
+          <span style="font-size:11px;color:var(--text3);"> — Stopped at ${c.med.stoppedAt||'today'} by ${c.med.stoppedBy||''}</span>
+        </div>`;
+      }
     }).join('');
   } else {
-    changesDiv.innerHTML = '<span style="color:var(--text3);font-size:12px;">No medication changes detected for today. If orders were updated, they will appear here.</span>';
+    changesDiv.innerHTML = '<span style="color:var(--text3);font-size:12px;">No medication changes today.</span>';
   }
 
   // Pre-fill assessment
@@ -3438,8 +3478,11 @@ function printProgressNote() {
       <div>${(p_pn_meds||[]).map((m,i)=>`<div class="med-row"><span style="color:#888;min-width:18px;">${i+1}.</span> <b>${m.drug}</b> ${m.dose} — ${m.route} ${m.frequency}${m.duration?' × '+m.duration:''}${m.instructions?' ('+m.instructions+')':''}</div>`).join('')||'<div style="color:#999;padding:6px;">No medications.</div>'}</div>
     </div>
 
-    ${(p_pn_changes||[]).length?`<div class="section"><div class="sec-title" style="color:#b45309;">⚡ Changes from Previous Day</div>
-      ${(p_pn_changes||[]).map(c=>`<div class="change-row">🆕 New order: <b>${c.med.drug}</b> ${c.med.dose} ${c.med.route} ${c.med.frequency} — Ordered: ${c.med.ordered}</div>`).join('')}
+    ${(p_pn_changes||[]).length?`<div class="section"><div class="sec-title" style="color:#b45309;">⚡ Medication Changes Today</div>
+      ${(p_pn_changes||[]).map(c=>c.type==='NEW'
+        ?`<div class="change-row" style="background:#e8f5e9;border-color:#4caf50;">🆕 <b>NEW:</b> ${c.med.drug} ${c.med.dose} ${c.med.route} ${c.med.frequency} — Ordered: ${c.med.ordered||'today'}</div>`
+        :`<div class="change-row" style="background:#ffebee;border-color:#f44336;">🛑 <b>STOPPED:</b> ${c.med.drug} ${c.med.dose} ${c.med.route} ${c.med.frequency} — Stopped: ${c.med.stoppedAt||'today'}</div>`
+      ).join('')}
     </div>`:''}
 
     ${get('pn_plan')?`<div class="section"><div class="sec-title">Plan</div><div class="sec-body">${get('pn_plan')}</div></div>`:''}
@@ -3704,6 +3747,10 @@ function updateRoleUI() {
 // ADMIN PANEL
 // ============================================================
 function openAdminPanel() {
+  if(!currentUser || currentUser.role !== 'admin') {
+    alert('⛔ Admin panel is restricted to admin accounts only.');
+    return;
+  }
   renderAdminAccountList();
   fbPopulateFields();
   document.getElementById('adminModal').classList.add('open');
