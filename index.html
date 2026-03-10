@@ -1483,7 +1483,7 @@ const FB_PT_PATH  = 'cwh_his/patients';
 
 // ── BAKED-IN CONFIG (set via Admin → Export to File) ──────────────────────────
 // When this is filled, ALL devices auto-connect without any manual setup.
-const FIREBASE_BAKED_CONFIG = {"apiKey":"AIzaSyBQo7aytTJUVxuS9qFHh4C6VDeVQOPBGVY","databaseURL":"https://chandrawati-his-default-rtdb.asia-southeast1.firebasedatabase.app","authDomain":"","projectId":""}; // AUTO-BAKED — all devices auto-connect
+const FIREBASE_BAKED_CONFIG = null; // e.g. { apiKey:"...", databaseURL:"..." }
 // ─────────────────────────────────────────────────────────────────────────────
 
 function fbGetConfig() {
@@ -1614,31 +1614,37 @@ function fbClearConfig() {
 function fbExportFile() {
   const cfg = fbGetConfig();
   if(!cfg || !cfg.apiKey) { alert('No Firebase config saved. Please fill in and Save & Connect first.'); return; }
-  // Read current HTML source and replace the BAKED config line
-  const xhr = new XMLHttpRequest();
-  xhr.open('GET', window.location.href, true);
-  xhr.onload = function() {
-    let html = xhr.responseText;
-    const configJson = JSON.stringify(cfg);
-    // Replace the null placeholder with actual config
+
+  // Get the full HTML from the live document (works on GitHub Pages, no XHR needed)
+  const configJson = JSON.stringify(cfg);
+  let html = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
+
+  // Replace the baked config line
+  html = html.replace(
+    /const FIREBASE_BAKED_CONFIG = (?:null|\{[^;]*\});[^\n]*/,
+    `const FIREBASE_BAKED_CONFIG = ${configJson}; // AUTO-BAKED`
+  );
+
+  // Verify replacement worked
+  if(!html.includes(cfg.apiKey)) {
+    // Fallback: inject right after the FB_PT_PATH line
     html = html.replace(
-      /const FIREBASE_BAKED_CONFIG = null;.*?\/\/ ─{10,}/s,
-      `const FIREBASE_BAKED_CONFIG = ${configJson}; // AUTO-BAKED — all devices auto-connect\n// ─────────────────────────────────────────────────────────────────────────────`
+      "const FB_PT_PATH  = 'cwh_his/patients';",
+      `const FB_PT_PATH  = 'cwh_his/patients';\nconst FIREBASE_BAKED_CONFIG = ${configJson}; // AUTO-BAKED`
     );
-    const blob = new Blob([html], { type: 'text/html' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'chandrawati_hospital_his_synced.html';
-    a.click();
-    URL.revokeObjectURL(a.href);
-    const note = document.getElementById('fbExportNote');
-    if(note) note.style.display = 'block';
-  };
-  xhr.onerror = function() {
-    // Fallback: manually inject using the script content approach
-    alert('Could not fetch file automatically. Please re-download the file from GitHub and use the setup steps.');
-  };
-  xhr.send();
+  }
+
+  const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'chandrawati_hospital_his_synced.html';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(a.href);
+
+  const note = document.getElementById('fbExportNote');
+  if(note) note.style.display = 'block';
 }
 
 function fbPopulateFields() {
@@ -2155,8 +2161,8 @@ function initVitalsCharts(id) {
 
   const chartDef = [
     {id:`chart_hr_${id}`,   key:'hr',   color:'#f85149', label:'HR (bpm)',    refMin:60,  refMax:160},
-    {id:`chart_spo2_${id}`, key:'spo2', color:'#58a6ff', label:'SpO₂ (%)',   refMin:88,  refMax:100},
-    {id:`chart_temp_${id}`, key:'temp', color:'#e3b341', label:'Temp (°C)',   refMin:35,  refMax:40 },
+    {id:`chart_spo2_${id}`, key:'spo2', color:'#58a6ff', label:'SpO2 (%)',   refMin:88,  refMax:100},
+    {id:`chart_temp_${id}`, key:'temp', color:'#e3b341', label:'Temp (C)',    refMin:35,  refMax:40 },
     {id:`chart_rr_${id}`,   key:'rr',   color:'#56d364', label:'RR (/min)',   refMin:8,   refMax:60 },
     {id:`chart_rbs_${id}`,  key:'rbs',  color:'#e85d9b', label:'RBS (mg/dL)',refMin:60,  refMax:180},
   ];
@@ -2164,11 +2170,11 @@ function initVitalsCharts(id) {
   chartDef.forEach(cd => {
     const canvas = document.getElementById(cd.id);
     if(!canvas) return;
-    // Destroy old chart instance cleanly
+    // Use Chart.getChart to destroy any instance registered on this canvas element
+    // (handles stale instances after DOM re-render)
+    try { const ex = Chart.getChart(canvas); if(ex) ex.destroy(); } catch(e){}
     if(vitalsCharts[cd.id]) { try { vitalsCharts[cd.id].destroy(); } catch(e){} delete vitalsCharts[cd.id]; }
-    // Remove any stale "No data" overlays
-    const parent = canvas.parentElement;
-    Array.from(parent.querySelectorAll('.no-data-msg')).forEach(el => el.remove());
+    Array.from(canvas.parentElement.querySelectorAll('.no-data-msg')).forEach(el => el.remove());
 
     const data = history.map(v => (v[cd.key] != null && v[cd.key] !== '') ? Number(v[cd.key]) : null);
     const validData = data.filter(x => x !== null);
@@ -2177,7 +2183,7 @@ function initVitalsCharts(id) {
       msg.className = 'no-data-msg';
       msg.style.cssText = 'font-size:11px;color:var(--text3);text-align:center;padding:20px;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);';
       msg.textContent = 'No data recorded';
-      parent.appendChild(msg);
+      canvas.parentElement.appendChild(msg);
       return;
     }
     const yMin = Math.max(0, Math.min(cd.refMin - 10, ...validData) - 5);
@@ -2199,18 +2205,18 @@ function initVitalsCharts(id) {
     });
   });
 
-  // I/O bar chart — use correct field names: ivIntake, oralIntake, ngFeed, urine, drain
+  // I/O bar chart — field names match saveVitals: iv_in, oral_in, urine, drain, other_out
   const ioCanvas = document.getElementById(`chart_io_${id}`);
   if(ioCanvas) {
+    try { const ex = Chart.getChart(ioCanvas); if(ex) ex.destroy(); } catch(e){}
     if(vitalsCharts[`chart_io_${id}`]) { try { vitalsCharts[`chart_io_${id}`].destroy(); } catch(e){} delete vitalsCharts[`chart_io_${id}`]; }
-    const ioParent = ioCanvas.parentElement;
-    Array.from(ioParent.querySelectorAll('.no-data-msg')).forEach(el => el.remove());
+    Array.from(ioCanvas.parentElement.querySelectorAll('.no-data-msg')).forEach(el => el.remove());
 
-    const ioEntries = history.filter(v => v.urine||v.ivIntake||v.oralIntake||v.drain||v.ngFeed);
+    const ioEntries = history.filter(v => v.urine||v.iv_in||v.oral_in||v.drain||v.other_out);
     if(ioEntries.length > 0) {
-      const ioLabels  = ioEntries.map(v => { const d=new Date(v.timestamp); return isNaN(d)?'?':`${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; });
-      const totalIn   = ioEntries.map(v => (v.ivIntake||0)+(v.oralIntake||0)+(v.ngFeed||0));
-      const totalOut  = ioEntries.map(v => (v.urine||0)+(v.drain||0));
+      const ioLabels = ioEntries.map(v => { const d=new Date(v.timestamp); return isNaN(d)?'?':`${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; });
+      const totalIn  = ioEntries.map(v => (v.iv_in||0)+(v.oral_in||0));
+      const totalOut = ioEntries.map(v => (v.urine||0)+(v.drain||0)+(v.other_out||0));
       vitalsCharts[`chart_io_${id}`] = new Chart(ioCanvas, {
         type: 'bar',
         data: { labels: ioLabels, datasets:[
@@ -2231,7 +2237,7 @@ function initVitalsCharts(id) {
       msg.className = 'no-data-msg';
       msg.style.cssText = 'font-size:11px;color:var(--text3);text-align:center;padding:20px;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);';
       msg.textContent = 'No I/O data recorded';
-      ioParent.appendChild(msg);
+      ioCanvas.parentElement.appendChild(msg);
     }
   }
 }
@@ -3245,15 +3251,19 @@ function detectMedChanges(patient, targetDate) {
 
 function getIOForDate(vitalsHistory, dateStr) {
   const entries = (vitalsHistory||[]).filter(v => v.timestamp && v.timestamp.startsWith(dateStr));
-  let totalIn=0, totalOut=0, urine=0, drain=0, ivIn=0, oralIn=0, ngIn=0, stoolArr=[];
+  let totalIn=0, totalOut=0, urine=0, drain=0, ivIn=0, oralIn=0, otherOut=0, stoolArr=[];
   entries.forEach(e => {
-    ivIn += e.ivIntake||0; oralIn += e.oralIntake||0; ngIn += e.ngFeed||0;
-    urine += e.urine||0; drain += e.drain||0;
-    if(e.stool && e.stool !== '') stoolArr.push(e.stool);
+    // Field names match saveVitals: iv_in, oral_in, urine, drain, other_out, stool
+    ivIn    += e.iv_in||0;
+    oralIn  += e.oral_in||0;
+    urine   += e.urine||0;
+    drain   += e.drain||0;
+    otherOut += e.other_out||0;
+    if(e.stool && e.stool !== '' && e.stool !== '0') stoolArr.push(e.stool);
   });
-  totalIn = ivIn+oralIn+ngIn;
-  totalOut = urine+drain;
-  return { totalIn, totalOut, urine, drain, ivIn, oralIn, ngIn, stoolArr, balance: totalIn-totalOut, count: entries.length };
+  totalIn  = ivIn + oralIn;
+  totalOut = urine + drain + otherOut;
+  return { totalIn, totalOut, urine, drain, ivIn, oralIn, otherOut, stoolArr, balance: totalIn-totalOut, count: entries.length, hasUrine: urine > 0 };
 }
 
 function openProgressNote(id) {
@@ -3334,12 +3344,12 @@ function openProgressNote(id) {
       <div style="display:flex;flex-wrap:wrap;gap:8px;">
         <div style="background:rgba(33,150,243,0.1);border:1px solid #2196F344;padding:8px 14px;border-radius:8px;">
           <div style="font-size:10px;color:#64b5f6;font-weight:600;margin-bottom:3px;">INPUT</div>
-          <div style="font-size:12px;">IV: <b>${io.ivIn} mL</b> · Oral: <b>${io.oralIn} mL</b>${io.ngIn?` · NG: <b>${io.ngIn} mL</b>`:''}</div>
+          <div style="font-size:12px;">${io.ivIn?`IV: <b>${io.ivIn} mL</b>`:''}${io.ivIn&&io.oralIn?' · ':''}${io.oralIn?`Oral: <b>${io.oralIn} mL</b>`:''}</div>
           <div style="font-size:13px;color:var(--accent);font-weight:600;">Total In: ${io.totalIn} mL</div>
         </div>
         <div style="background:rgba(86,211,100,0.1);border:1px solid #56d36444;padding:8px 14px;border-radius:8px;">
           <div style="font-size:10px;color:#56d364;font-weight:600;margin-bottom:3px;">OUTPUT</div>
-          <div style="font-size:12px;">Urine: <b>${io.urine} mL</b>${io.drain?` · Drain: <b>${io.drain} mL</b>`:''}</div>
+          ${io.hasUrine?`<div style="font-size:12px;">Urine: <b>${io.urine} mL</b>${io.drain?` · Drain: <b>${io.drain} mL</b>`:''}</div>`:(io.drain?`<div style="font-size:12px;">Drain: <b>${io.drain} mL</b></div>`:'<div style="font-size:12px;color:var(--text3);">Urine not recorded</div>')}
           ${io.stoolArr.length?`<div style="font-size:12px;">Stool: ${[...new Set(io.stoolArr)].join(', ')}</div>`:''}
           <div style="font-size:13px;color:#56d364;font-weight:600;">Total Out: ${io.totalOut} mL</div>
         </div>
@@ -3398,6 +3408,7 @@ function openProgressNote(id) {
   // Store for print
   p_pn_meds = getMedsSnapshot(p.medications);
   p_pn_changes = detectMedChanges(p, pnDate);
+  p_pn_io = io;
 
   document.getElementById('progressNoteModal').classList.add('open');
 }
@@ -3467,7 +3478,20 @@ function printProgressNote() {
     </div>
 
     <div class="section"><div class="sec-title">💧 24h I/O</div>
-      <div class="sec-body">${document.getElementById('pn_ioDisplay')?.textContent || '—'}</div>
+      <div class="sec-body">${(()=>{
+        const io = p_pn_io;
+        if(!io || io.count === 0) return 'No I/O recorded.';
+        const inParts = [];
+        if(io.ivIn)   inParts.push(`IV: ${io.ivIn} mL`);
+        if(io.oralIn) inParts.push(`Oral: ${io.oralIn} mL`);
+        const outParts = [];
+        if(io.hasUrine) outParts.push(`Urine: ${io.urine} mL`);
+        if(io.drain)    outParts.push(`Drain: ${io.drain} mL`);
+        if(io.otherOut) outParts.push(`Other: ${io.otherOut} mL`);
+        const stoolStr = io.stoolArr && io.stoolArr.length ? `  Stool: ${[...new Set(io.stoolArr)].join(', ')}` : '';
+        const balStr = `  Fluid Balance: ${io.balance >= 0 ? '+' : ''}${io.balance} mL`;
+        return `In: ${inParts.join(', ')||'0 mL'}  |  Out: ${outParts.join(', ')||'0 mL'}${stoolStr}${balStr}`;
+      })()}</div>
     </div>
 
     ${get('pn_subjective')?`<div class="section"><div class="sec-title">Subjective / Complaints</div><div class="sec-body">${get('pn_subjective')}</div></div>`:''}
@@ -3496,7 +3520,7 @@ function printProgressNote() {
 }
 
 // Store refs for print
-let p_pn_meds = [], p_pn_changes = [];
+let p_pn_meds = [], p_pn_changes = [], p_pn_io = null;
 
 // ============================================================
 // DISCHARGE SUMMARY TEMPLATE
@@ -3884,28 +3908,49 @@ function mmO2ModeChange() {
 // ============================================================
 // ENTER KEY NAVIGATION
 // ============================================================
-function setupEnterNav(modalId) {
-  const modal = document.getElementById(modalId);
-  if(!modal) return;
-  const fields = Array.from(modal.querySelectorAll('input:not([type=hidden]):not([readonly]), select'));
-  fields.forEach((el, idx) => {
-    const old = el._enterHandler;
-    if(old) el.removeEventListener('keydown', old);
-    const h = function(e) {
-      if(e.key === 'Enter' && el.tagName !== 'TEXTAREA') {
-        e.preventDefault();
-        const next = fields[idx + 1];
-        if(next) { next.focus(); }
-        else {
-          const saveBtn = modal.querySelector('.btn-primary');
-          if(saveBtn) saveBtn.click();
-        }
+// ── GLOBAL ENTER KEY NAVIGATION ──────────────────────────────────────────────
+// Uses event delegation — works for all fields including dynamically added rows
+(function setupGlobalEnterNav() {
+  document.addEventListener('keydown', function(e) {
+    if(e.key !== 'Enter') return;
+    const el = e.target;
+    // Skip textareas — Enter should insert newline there
+    if(el.tagName === 'TEXTAREA') return;
+    // Only handle input and select elements
+    if(el.tagName !== 'INPUT' && el.tagName !== 'SELECT') return;
+    e.preventDefault();
+
+    // Find the nearest open modal
+    const modal = el.closest('.modal-overlay.open .modal') || el.closest('.modal');
+    const scope = modal || document;
+
+    // Collect all focusable fields within scope
+    const fields = Array.from(scope.querySelectorAll(
+      'input:not([type=hidden]):not([readonly]):not([disabled]), select:not([disabled])'
+    )).filter(f => f.offsetParent !== null); // only visible fields
+
+    const idx = fields.indexOf(el);
+    if(idx === -1) return;
+
+    const next = fields[idx + 1];
+    if(next) {
+      next.focus();
+      // Select text in inputs for faster overwrite
+      if(next.tagName === 'INPUT' && next.type !== 'checkbox' && next.type !== 'radio') {
+        next.select();
       }
-    };
-    el._enterHandler = h;
-    el.addEventListener('keydown', h);
+    } else {
+      // Last field — click primary button in modal
+      const btn = modal && modal.querySelector('.btn-primary');
+      if(btn) btn.click();
+    }
   });
+})();
+
+function setupEnterNav(modalId) {
+  // Legacy stub — global handler above covers everything now
 }
+// ─────────────────────────────────────────────────────────────────────────────
 
 </script>
 
