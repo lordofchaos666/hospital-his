@@ -379,8 +379,8 @@ html,body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text
         <b>One-time free setup:</b><br>
         1. Go to <b>console.firebase.google.com</b> → New project → Add Web app<br>
         2. Build → Realtime Database → Create database → <b>Start in test mode</b><br>
-        3. Copy your config keys below and click <b>Save &amp; Connect</b><br>
-        4. All devices (laptop, phone, tablet) will sync automatically ✅
+        3. Paste config below → <b>Save &amp; Connect</b> → then click <b>📋 Copy Share Link</b><br>
+        4. Send that link to phone/tablet — opening it auto-connects all devices ✅
       </div>
       <div class="form-grid">
         <div class="form-group"><label class="form-label">API Key *</label><input class="form-input" id="fb_apiKey" placeholder="AIzaSy..."></div>
@@ -388,15 +388,16 @@ html,body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text
         <div class="form-group"><label class="form-label">Auth Domain</label><input class="form-input" id="fb_authDomain" placeholder="your-project.firebaseapp.com"></div>
         <div class="form-group"><label class="form-label">Project ID</label><input class="form-input" id="fb_projectId" placeholder="your-project-id"></div>
       </div>
-      <div style="display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap;">
+      <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
         <button class="btn btn-primary btn-sm" onclick="fbSaveConfig()">💾 Save &amp; Connect</button>
         <button class="btn btn-secondary btn-sm" onclick="fbTestConnection()">🔌 Test Connection</button>
-        <button class="btn btn-secondary btn-sm" onclick="fbExportFile()" style="background:rgba(86,211,100,0.15);border-color:#56d364;color:#56d364;">📥 Bake Config &amp; Download File</button>
+        <button class="btn btn-secondary btn-sm" onclick="fbCopyShareLink()" style="background:rgba(86,211,100,0.15);border-color:#56d364;color:#56d364;">📋 Copy Share Link</button>
         <button class="btn btn-secondary btn-sm" onclick="fbClearConfig()" style="color:var(--danger);border-color:var(--danger);">✕ Disconnect</button>
       </div>
-      <div id="fbExportNote" style="display:none;padding:9px 13px;border-radius:7px;background:rgba(86,211,100,0.1);border:1px solid #56d364;font-size:12px;color:#56d364;margin-bottom:14px;">
-        ✅ File downloaded with config baked in. Upload this new file to GitHub Pages — every device (laptop, phone, tablet) will auto-connect to Firebase with no setup needed.
+      <div id="fbShareNote" style="display:none;padding:9px 13px;border-radius:7px;background:rgba(86,211,100,0.1);border:1px solid #56d364;font-size:12px;color:#56d364;margin-bottom:10px;">
+        ✅ Link copied! Send it via WhatsApp/SMS to any phone or tablet. Opening the link auto-connects to Firebase — no manual setup needed on that device.
       </div>
+      <div id="fbShareLinkBox" style="display:none;word-break:break-all;background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:8px 12px;font-size:10px;color:var(--text2);margin-bottom:14px;font-family:monospace;"></div>
 
       <!-- ACCOUNTS -->
       <div class="form-section-title">👥 Account Management</div>
@@ -1496,10 +1497,56 @@ const FIREBASE_BAKED_CONFIG = null; // e.g. { apiKey:"...", databaseURL:"..." }
 // ─────────────────────────────────────────────────────────────────────────────
 
 function fbGetConfig() {
-  // Priority: baked-in → localStorage
+  // Priority 1: baked-in constant
   if(FIREBASE_BAKED_CONFIG && FIREBASE_BAKED_CONFIG.apiKey) return FIREBASE_BAKED_CONFIG;
-  try { return JSON.parse(localStorage.getItem(FB_CFG_KEY) || 'null'); } catch(e) { return null; }
+  // Priority 2: localStorage (previously saved on this device)
+  try {
+    const local = JSON.parse(localStorage.getItem(FB_CFG_KEY) || 'null');
+    if(local && local.apiKey) return local;
+  } catch(e) {}
+  return null;
 }
+
+// ── URL-HASH CONFIG BOOTSTRAP ─────────────────────────────────────────────────
+// Admin generates a share link (GitHub URL + #cfg=base64). Any device that opens
+// it auto-saves the config to its own localStorage and connects — no re-upload.
+function fbCheckUrlHash() {
+  try {
+    const hash = window.location.hash;
+    if(!hash || !hash.includes('cfg=')) return null;
+    const b64 = hash.split('cfg=')[1].split('&')[0];
+    const cfg = JSON.parse(atob(b64));
+    if(!cfg || !cfg.apiKey || !cfg.databaseURL) return null;
+    // Persist locally so future visits on this device auto-connect
+    localStorage.setItem(FB_CFG_KEY, JSON.stringify(cfg));
+    // Remove hash from address bar cleanly
+    history.replaceState(null, '', window.location.pathname + window.location.search);
+    return cfg;
+  } catch(e) { return null; }
+}
+
+function fbCopyShareLink() {
+  const cfg = fbGetConfig();
+  if(!cfg || !cfg.apiKey) {
+    alert('No Firebase config saved yet. Please fill in and Save & Connect first.');
+    return;
+  }
+  const b64 = btoa(JSON.stringify(cfg));
+  const shareUrl = window.location.href.split('#')[0] + '#cfg=' + b64;
+  const box  = document.getElementById('fbShareLinkBox');
+  const note = document.getElementById('fbShareNote');
+  if(box)  { box.style.display = 'block'; box.textContent = shareUrl; }
+  if(navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(shareUrl)
+      .then(() => { if(note) note.style.display = 'block'; })
+      .catch(() => { if(note) { note.style.display='block'; note.textContent='Copy the link below and send it:'; } });
+  } else {
+    // Fallback: prompt for manual copy (works on all mobile browsers)
+    prompt('Copy this link and open it on any device to connect:', shareUrl);
+    if(note) note.style.display = 'block';
+  }
+}
+// ─────────────────────────────────────────────────────────────────────────────
 
 function fbSetStatus(icon, text, color) {
   const badge = document.getElementById('syncBadge');
@@ -1573,6 +1620,9 @@ function saveData() {
 }
 
 function loadData() {
+  // 0. Check URL hash — if share link was opened, extract and save config
+  const hashCfg = fbCheckUrlHash();
+
   // 1. Load localStorage immediately (fast start)
   try {
     const raw = localStorage.getItem(LS_KEY);
@@ -1588,8 +1638,9 @@ function loadData() {
     if(!p.notes)           p.notes = [];
     if(!p.dischargeInfo)   p.dischargeInfo = null;
   });
-  // 2. Connect Firebase if configured
-  const cfg = fbGetConfig();
+
+  // 2. Connect Firebase — use hash config (new device) or existing saved config
+  const cfg = hashCfg || fbGetConfig();
   if(cfg && cfg.apiKey && cfg.databaseURL) {
     fbSetStatus('🟡','Connecting...','#e3b341');
     setTimeout(() => fbInit(cfg), 50);
@@ -1623,42 +1674,6 @@ function fbClearConfig() {
   fbApp=null; fbDb=null; fbConnected=false; fbListenerActive=false;
   fbSetStatus('⚪','Local only','var(--text3)');
   ['fb_apiKey','fb_dbUrl','fb_authDomain','fb_projectId'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
-}
-
-function fbExportFile() {
-  const cfg = fbGetConfig();
-  if(!cfg || !cfg.apiKey) { alert('No Firebase config saved. Please fill in and Save & Connect first.'); return; }
-
-  // Get the full HTML from the live document (works on GitHub Pages, no XHR needed)
-  const configJson = JSON.stringify(cfg);
-  let html = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
-
-  // Replace the baked config line
-  html = html.replace(
-    /const FIREBASE_BAKED_CONFIG = (?:null|\{[^;]*\});[^\n]*/,
-    `const FIREBASE_BAKED_CONFIG = ${configJson}; // AUTO-BAKED`
-  );
-
-  // Verify replacement worked
-  if(!html.includes(cfg.apiKey)) {
-    // Fallback: inject right after the FB_PT_PATH line
-    html = html.replace(
-      "const FB_PT_PATH  = 'cwh_his/patients';",
-      `const FB_PT_PATH  = 'cwh_his/patients';\nconst FIREBASE_BAKED_CONFIG = ${configJson}; // AUTO-BAKED`
-    );
-  }
-
-  const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = 'chandrawati_hospital_his_synced.html';
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(a.href);
-
-  const note = document.getElementById('fbExportNote');
-  if(note) note.style.display = 'block';
 }
 
 function fbPopulateFields() {
