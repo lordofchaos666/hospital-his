@@ -821,6 +821,15 @@ html,body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text
         <div class="form-group"><label class="form-label">BP Systolic</label><input class="form-input" type="number" id="vm_bpS" placeholder="mmHg"></div>
         <div class="form-group"><label class="form-label">BP Diastolic</label><input class="form-input" type="number" id="vm_bpD" placeholder="mmHg"></div>
         <div class="form-group"><label class="form-label">RBS (mg/dL)</label><input class="form-input" type="number" id="vm_rbs" placeholder="e.g. 95"></div>
+        <div class="form-group"><label class="form-label">RBS Timing</label>
+          <select class="form-select" id="vm_rbs_timing">
+            <option value="Random">Random</option>
+            <option value="Fasting">Fasting</option>
+            <option value="Post-prandial">Post-prandial (2h)</option>
+            <option value="Pre-feed">Pre-feed (NICU)</option>
+            <option value="Post-feed">Post-feed (NICU)</option>
+          </select>
+        </div>
         <div class="form-group"><label class="form-label">Weight (kg)</label><input class="form-input" type="number" step="0.1" id="vm_wt" placeholder="current wt"></div>
         <div class="form-group"><label class="form-label">GCS (if needed)</label><input class="form-input" type="number" id="vm_gcs" placeholder="3–15" min="3" max="15"></div>
       </div>
@@ -1531,6 +1540,7 @@ function fbStartListener() {
         if(!p.labPanels)       p.labPanels = [];
         if(!p.scannedReports)  p.scannedReports = [];
         if(!p.medications)     p.medications = [];
+        if(!p.stoppedMeds)     p.stoppedMeds = [];
         if(!p.notes)           p.notes = [];
         if(!p.dischargeInfo)   p.dischargeInfo = null;
       });
@@ -1538,7 +1548,10 @@ function fbStartListener() {
       renderDashboard(); renderPatientList(); updateBadges();
       if(currentView==='nursing')   renderNursing();
       if(currentView==='discharged') renderDischargedList();
-      if(currentView==='ipd' && selectedPatientId) renderPatientDetail(selectedPatientId);
+      if(currentView==='ipd' && selectedPatientId) {
+        renderPatientDetail(selectedPatientId);
+        if(activeDetailTab === 'vitals') setTimeout(() => initVitalsCharts(selectedPatientId), 150);
+      }
     }
     fbSetStatus('🟢','Synced','#56d364');
   }, err => { fbSetStatus('❌','Sync error','#f85149'); });
@@ -1571,6 +1584,7 @@ function loadData() {
     if(!p.labPanels)       p.labPanels = [];
     if(!p.scannedReports)  p.scannedReports = [];
     if(!p.medications)     p.medications = [];
+    if(!p.stoppedMeds)     p.stoppedMeds = [];
     if(!p.notes)           p.notes = [];
     if(!p.dischargeInfo)   p.dischargeInfo = null;
   });
@@ -2517,6 +2531,8 @@ function openVitalsModal(id) {
     const el = document.getElementById('vm_'+k);
     if(el) el.value = '';
   });
+  const timingEl = document.getElementById('vm_rbs_timing');
+  if(timingEl) timingEl.value = 'Random';
   document.getElementById('vm_nurse').value = '';
   document.getElementById('vitalsModal').classList.add('open');
   setupEnterNav('vitalsModal');
@@ -2550,7 +2566,11 @@ function saveVitals() {
   if(!isNaN(temp) && temp>0) { entry.temp = temp; p.vitals.temp = temp; }
   if(!isNaN(bpSys) && bpSys>0) { entry.bpSys = bpSys; p.vitals.bpSys = bpSys; }
   if(!isNaN(bpDia) && bpDia>0) { entry.bpDia = bpDia; p.vitals.bpDia = bpDia; }
-  if(!isNaN(rbs) && rbs>0) { entry.rbs = rbs; p.vitals.rbs = rbs; }
+  if(!isNaN(rbs) && rbs>0) {
+    entry.rbs = rbs; p.vitals.rbs = rbs;
+    const rbsTiming = document.getElementById('vm_rbs_timing')?.value || 'Random';
+    entry.rbsTiming = rbsTiming;
+  }
   if(!isNaN(wt) && wt>0) { entry.wt = wt; p.weight = wt; }
   if(!isNaN(gcs) && gcs>=3) { entry.gcs = gcs; p.vitals.gcs = gcs; }
   if(!isNaN(iv_in) && iv_in>=0) entry.iv_in = iv_in;
@@ -3164,6 +3184,20 @@ renderDashboard();
 renderPatientList();
 
 // Update sidebar badges
+function toggleSidebar() {
+  const sb = document.querySelector('.sidebar');
+  const ov = document.getElementById('sidebarOverlay');
+  if(!sb || !ov) return;
+  const isOpen = sb.classList.contains('open');
+  if(isOpen) {
+    sb.classList.remove('open');
+    ov.style.display = 'none';
+  } else {
+    sb.classList.add('open');
+    ov.style.display = 'block';
+  }
+}
+
 function updateBadges() {
   const active = getActivePts();
   const analyzed = active.map(p => ({...p, ...analyzePatient(p)}));
@@ -3259,7 +3293,7 @@ function getIOForDate(vitalsHistory, dateStr) {
     urine   += e.urine||0;
     drain   += e.drain||0;
     otherOut += e.other_out||0;
-    if(e.stool && e.stool !== '' && e.stool !== '0') stoolArr.push(e.stool);
+    if(e.stool != null && e.stool !== '' && e.stool !== 0 && e.stool !== '0') stoolArr.push(e.stool);
   });
   totalIn  = ivIn + oralIn;
   totalOut = urine + drain + otherOut;
