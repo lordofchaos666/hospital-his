@@ -1577,6 +1577,15 @@ function fbInit(cfg) {
 function fbStartListener() {
   if(!fbDb || fbListenerActive) return;
   fbListenerActive = true;
+  // Bug #3 fix: Online/offline badge via Firebase presence system
+  fbDb.ref('.info/connected').on('value', snap => {
+    if(snap.val() === true) {
+      fbSetStatus('🟢','Synced','#56d364');
+    } else {
+      fbSetStatus('🟠','Offline — reconnecting...','#f0883e');
+    }
+  });
+
   fbDb.ref(FB_PT_PATH).on('value', snap => {
     const raw = snap.val();
     if(raw !== null) {
@@ -2383,12 +2392,12 @@ function admitPatient() {
   if(!name) { alert('Patient name is required'); return; }
   if(!diagnosis) { alert('Provisional diagnosis is required'); return; }
 
-  const hr = parseInt(document.getElementById('a_hr').value);
-  const rr = parseInt(document.getElementById('a_rr').value);
-  const spo2 = parseInt(document.getElementById('a_spo2').value);
+  const hr = parseInt(document.getElementById('a_hr').value, 10);
+  const rr = parseInt(document.getElementById('a_rr').value, 10);
+  const spo2 = parseInt(document.getElementById('a_spo2').value, 10);
   const temp = parseFloat(document.getElementById('a_temp').value);
-  const bpSys = parseInt(document.getElementById('a_bpS').value);
-  const bpDia = parseInt(document.getElementById('a_bpD').value);
+  const bpSys = parseInt(document.getElementById('a_bpS').value, 10);
+  const bpDia = parseInt(document.getElementById('a_bpD').value, 10);
 
   const vitals = {};
   if(!isNaN(hr) && hr > 0) vitals.hr = hr;
@@ -2425,12 +2434,22 @@ function admitPatient() {
     status: 'active',
     vitals,
     vitalsHistory,
-    labPanels: [],          // NO auto-generated lab reports
+    labPanels: [],
     scannedReports: [],
     medications: [],
+    stoppedMeds: [],
     notes: [],
     dischargeInfo: null
   };
+
+  // Bug #6 fix: Warn on duplicate bed assignment
+  const bedVal = newPatient.bed ? newPatient.bed.trim() : '';
+  if(bedVal) {
+    const bedTaken = patients.find(p => p.status === 'active' && p.bed && p.bed.trim() === bedVal);
+    if(bedTaken) {
+      if(!confirm(`⚠️ Bed "${bedVal}" is already assigned to ${bedTaken.name}. Admit anyway?`)) return;
+    }
+  }
 
   patients.push(newPatient);
   saveData();
@@ -2549,6 +2568,7 @@ function openVitalsModal(id) {
   const timingEl = document.getElementById('vm_rbs_timing');
   if(timingEl) timingEl.value = 'Random';
   document.getElementById('vm_nurse').value = '';
+  window._vitalsOpenedAt = new Date().toISOString(); // Bug #7: timestamp at open
   document.getElementById('vitalsModal').classList.add('open');
   setupEnterNav('vitalsModal');
 }
@@ -2557,24 +2577,24 @@ function saveVitals() {
   if(!vitalsTargetId) return;
   const p = getPatient(vitalsTargetId);
   if(!p) return;
-  const hr = parseInt(document.getElementById('vm_hr').value);
-  const rr = parseInt(document.getElementById('vm_rr').value);
-  const spo2 = parseInt(document.getElementById('vm_spo2').value);
+  const hr = parseInt(document.getElementById('vm_hr').value, 10);
+  const rr = parseInt(document.getElementById('vm_rr').value, 10);
+  const spo2 = parseInt(document.getElementById('vm_spo2').value, 10);
   const temp = parseFloat(document.getElementById('vm_temp').value);
-  const bpSys = parseInt(document.getElementById('vm_bpS').value);
-  const bpDia = parseInt(document.getElementById('vm_bpD').value);
-  const rbs = parseInt(document.getElementById('vm_rbs').value);
+  const bpSys = parseInt(document.getElementById('vm_bpS').value, 10);
+  const bpDia = parseInt(document.getElementById('vm_bpD').value, 10);
+  const rbs = parseInt(document.getElementById('vm_rbs').value, 10);
   const wt = parseFloat(document.getElementById('vm_wt').value);
-  const gcs = parseInt(document.getElementById('vm_gcs').value);
-  const iv_in = parseInt(document.getElementById('vm_iv_in').value);
-  const oral_in = parseInt(document.getElementById('vm_oral_in').value);
-  const urine = parseInt(document.getElementById('vm_urine').value);
-  const stool = parseInt(document.getElementById('vm_stool').value);
-  const drain = parseInt(document.getElementById('vm_drain').value);
-  const other_out = parseInt(document.getElementById('vm_other_out').value);
+  const gcs = parseInt(document.getElementById('vm_gcs').value, 10);
+  const iv_in = parseInt(document.getElementById('vm_iv_in').value, 10);
+  const oral_in = parseInt(document.getElementById('vm_oral_in').value, 10);
+  const urine = parseInt(document.getElementById('vm_urine').value, 10);
+  const stool = parseInt(document.getElementById('vm_stool').value, 10);
+  const drain = parseInt(document.getElementById('vm_drain').value, 10);
+  const other_out = parseInt(document.getElementById('vm_other_out').value, 10);
   const nurse = document.getElementById('vm_nurse').value.trim();
 
-  const entry = { timestamp: new Date().toISOString(), nurse };
+  const entry = { timestamp: window._vitalsOpenedAt || new Date().toISOString(), nurse }; // use open-time timestamp
   if(!isNaN(hr) && hr>0) { entry.hr = hr; p.vitals.hr = hr; }
   if(!isNaN(rr) && rr>0) { entry.rr = rr; p.vitals.rr = rr; }
   if(!isNaN(spo2) && spo2>0) { entry.spo2 = spo2; p.vitals.spo2 = spo2; }
@@ -3959,6 +3979,19 @@ function mmO2ModeChange() {
 // ============================================================
 // ── GLOBAL ENTER KEY NAVIGATION ──────────────────────────────────────────────
 // Uses event delegation — works for all fields including dynamically added rows
+
+// ── ESC KEY: close open modals ────────────────────────────────────────────────
+document.addEventListener('keydown', function(e) {
+  if(e.key === 'Escape' || e.key === 'Esc') {
+    const openModal = document.querySelector('.modal-overlay.open');
+    if(openModal) {
+      openModal.classList.remove('open');
+      e.preventDefault();
+    }
+  }
+});
+// ─────────────────────────────────────────────────────────────────────────────
+
 (function setupGlobalEnterNav() {
   document.addEventListener('keydown', function(e) {
     if(e.key !== 'Enter') return;
