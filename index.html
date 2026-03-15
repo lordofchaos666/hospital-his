@@ -1433,11 +1433,11 @@ function analyzePatient(p) {
   const factors = [], moderate = [], positive = [];
 
   // Vital signs scoring
-  const hr = parseInt(v.hr);
+  const hr = parseInt(v.hr, 10);
   if (hr > 180 || hr < 60) { criticalScore += 3; factors.push(`HR: ${hr} bpm`); }
   else if (hr > 140 || hr < 80) { criticalScore += 1; moderate.push(`HR: ${hr} bpm`); }
 
-  const spo2 = parseInt(v.spo2);
+  const spo2 = parseInt(v.spo2, 10);
   if (spo2 < 88) { criticalScore += 5; factors.push(`SpO₂: ${spo2}%`); }
   else if (spo2 < 92) { criticalScore += 3; factors.push(`SpO₂: ${spo2}%`); }
   else if (spo2 < 95) { criticalScore += 1; moderate.push(`SpO₂: ${spo2}%`); }
@@ -1448,7 +1448,7 @@ function analyzePatient(p) {
   else if (temp > 39.0) { criticalScore += 1; moderate.push(`Temp: ${temp}°C`); }
   else if (temp >= 36.5 && temp <= 37.5) positive.push(`Temp normal: ${temp}°C`);
 
-  const rr = parseInt(v.rr);
+  const rr = parseInt(v.rr, 10);
   if (rr > 70 || rr < 10) { criticalScore += 3; factors.push(`RR: ${rr}/min`); }
   else if (rr > 50) { criticalScore += 2; moderate.push(`RR: ${rr}/min`); }
 
@@ -1602,6 +1602,7 @@ function fbStartListener() {
       });
       try { localStorage.setItem(LS_KEY, JSON.stringify(patients)); } catch(e) {}
       renderDashboard(); renderPatientList(); updateBadges();
+      if(currentView==='ipd')        renderIPD();
       if(currentView==='nursing')   renderNursing();
       if(currentView==='discharged') renderDischargedList();
       if(currentView==='ipd' && selectedPatientId) {
@@ -3214,6 +3215,18 @@ document.querySelectorAll('.modal-overlay').forEach(overlay => {
 // ============================================================
 // INIT
 // ============================================================
+// ── UNSAVED DATA WARNING ──────────────────────────────────────────────────────
+// Warns nurse before closing/refreshing tab if a modal is open (entry in progress)
+window.addEventListener('beforeunload', function(e) {
+  const openModal = document.querySelector('.modal-overlay.open');
+  if(openModal) {
+    e.preventDefault();
+    e.returnValue = 'You have unsaved data. Are you sure you want to leave?';
+    return e.returnValue;
+  }
+});
+// ─────────────────────────────────────────────────────────────────────────────
+
 loadData();
 renderDashboard();
 renderPatientList();
