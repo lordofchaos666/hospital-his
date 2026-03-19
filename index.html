@@ -1434,8 +1434,14 @@ function analyzePatient(p) {
 
   // Vital signs scoring
   const hr = parseInt(v.hr, 10);
-  if (hr > 180 || hr < 60) { criticalScore += 3; factors.push(`HR: ${hr} bpm`); }
-  else if (hr > 140 || hr < 80) { criticalScore += 1; moderate.push(`HR: ${hr} bpm`); }
+  // Age-adjusted HR thresholds (WHO/Nelson paediatric norms)
+  // Neonate (<1m): normal 100-180; Infant (<1y): 100-160; Child: 70-140; Adult-like >12y: 60-100
+  const ageYrs = p.dob ? Math.floor((new Date()-new Date(p.dob))/31557600000) : (p.ageText ? parseInt(p.ageText,10)||5 : 5);
+  const hrMax = ageYrs < 0.1 ? 190 : ageYrs < 1 ? 180 : ageYrs < 5 ? 160 : ageYrs < 12 ? 140 : 120;
+  const hrMin = ageYrs < 0.1 ? 100 : ageYrs < 1 ? 90 : ageYrs < 5 ? 80 : ageYrs < 12 ? 70 : 60;
+  const rrMax = ageYrs < 0.1 ? 70 : ageYrs < 1 ? 60 : ageYrs < 5 ? 40 : ageYrs < 12 ? 30 : 20;
+  if (hr > hrMax*1.1 || hr < hrMin*0.9) { criticalScore += 3; factors.push(`HR: ${hr} bpm`); }
+  else if (hr > hrMax || hr < hrMin) { criticalScore += 1; moderate.push(`HR: ${hr} bpm`); }
 
   const spo2 = parseInt(v.spo2, 10);
   if (spo2 < 88) { criticalScore += 5; factors.push(`SpO₂: ${spo2}%`); }
@@ -1449,8 +1455,8 @@ function analyzePatient(p) {
   else if (temp >= 36.5 && temp <= 37.5) positive.push(`Temp normal: ${temp}°C`);
 
   const rr = parseInt(v.rr, 10);
-  if (rr > 70 || rr < 10) { criticalScore += 3; factors.push(`RR: ${rr}/min`); }
-  else if (rr > 50) { criticalScore += 2; moderate.push(`RR: ${rr}/min`); }
+  if (rr > rrMax*1.2 || rr < 10) { criticalScore += 3; factors.push(`RR: ${rr}/min`); }
+  else if (rr > rrMax) { criticalScore += 2; moderate.push(`RR: ${rr}/min`); }
 
   // NLP on notes/diagnosis
   const noteText = (p.notes.map(n=>n.text).join(' ') + ' ' + (p.diagnosis||'')).toLowerCase();
@@ -1707,8 +1713,16 @@ function getPatient(id) { return patients.find(p => p.id === id); }
 
 function genPatientId() {
   const yr = new Date().getFullYear().toString().slice(-2);
-  const num = String(patients.length + 1).padStart(4,'0');
-  return `CHP-${yr}${num}`;
+  // Use timestamp + random suffix to prevent collision on simultaneous admissions
+  // Format: CHP-YY-MMDD-XXXX (e.g. CHP-26-0319-A3F2)
+  const now = new Date();
+  const mmdd = String(now.getMonth()+1).padStart(2,'0') + String(now.getDate()).padStart(2,'0');
+  const rand = Math.random().toString(36).substring(2,6).toUpperCase();
+  const id = `CHP-${yr}-${mmdd}-${rand}`;
+  // Guarantee uniqueness against existing patients
+  const existing = new Set(patients.map(p=>p.id));
+  if(existing.has(id)) return genPatientId(); // retry on collision (astronomically rare)
+  return id;
 }
 
 function calcAge(dob) {
@@ -1892,6 +1906,11 @@ function renderPatientList() {
       <div style="font-size:11px;color:var(--text3);margin-top:2px;">${p.diagnosis||'—'}</div>
     </div>`;
   }).join('');
+
+  // Performance guard: notice when >30 patients
+  if(filtered.length > 30) {
+    el.innerHTML += `<div style="padding:8px 12px;font-size:11px;color:var(--text3);text-align:center;border-top:1px solid var(--border);">Showing all ${filtered.length} patients — use search or filter to narrow results.</div>`;
+  }
 }
 
 function selectPatient(id) {
@@ -3362,12 +3381,20 @@ function openProgressNote(id) {
 
   // Day of admission
   let dayNo = '?';
-  if(p.admissionDate) {
+  // Bug fix: use admissionDateTime (ISO) not admissionDate (locale string which fails Date parsing)
+  const admSrc = p.admissionDateTime || p.admissionDate;
+  if(admSrc) {
     try {
-      const adm = new Date(p.admissionDate);
-      const now = new Date();
-      const diff = Math.floor((now - adm) / 86400000) + 1;
-      dayNo = 'Day ' + diff;
+      let adm = new Date(admSrc);
+      // fallback: try MM/DD/YYYY if locale string like "20/3/2026" failed
+      if(isNaN(adm) && admSrc.includes('/')) {
+        const parts = admSrc.split('/');
+        if(parts.length === 3) adm = new Date(`${parts[2]}-${parts[1].padStart(2,'0')}-${parts[0].padStart(2,'0')}`);
+      }
+      if(!isNaN(adm)) {
+        const diff = Math.floor((new Date() - adm) / 86400000) + 1;
+        dayNo = 'Day ' + diff;
+      }
     } catch(e) {}
   }
   document.getElementById('pn_dayNo').value = dayNo;
@@ -3748,10 +3775,10 @@ function printDischargeSummaryTemplate() {
 // AUTH SYSTEM
 // ============================================================
 const DEFAULT_ACCOUNTS = [
-  { id: 'dr_ritik', name: 'Dr. Ritik', password: '220410', role: 'doctor' },
-  { id: 'nursing', name: 'Nursing Staff', password: '123456', role: 'nurse' },
-  { id: 'admin', name: 'Administrator', password: '220410', role: 'admin' }
-];
+  { id: 'dr_ritik', name: 'Dr. Ritik', password: 'MjIwNDEw', role: 'doctor' },
+  { id: 'nursing', name: 'Nursing Staff', password: 'MTIzNDU2', role: 'nurse' },
+  { id: 'admin', name: 'Administrator', password: 'MjIwNDEw', role: 'admin' }
+]; // passwords are btoa-obfuscated
 
 function getAccounts() {
   try {
@@ -3777,7 +3804,7 @@ function doLogin() {
   const pw = document.getElementById('loginPw').value;
   const errEl = document.getElementById('loginError');
   const accounts = getAccounts();
-  const account = accounts.find(a => a.id.toLowerCase() === id && a.password === pw);
+  const account = accounts.find(a => a.id.toLowerCase() === id && (a.password === pw || a.password === btoa(pw)));
   if(!account) {
     errEl.textContent = 'Invalid user ID or password. Please try again.';
     errEl.style.display = 'block';
@@ -3886,7 +3913,7 @@ function adminAddAccount() {
   if(!id || !name || !pw) { alert('All fields required'); return; }
   const accounts = getAccounts();
   if(accounts.find(a => a.id === id)) { alert('User ID already exists'); return; }
-  accounts.push({ id, name, password: pw, role });
+  accounts.push({ id, name, password: btoa(pw), role }); // btoa obfuscated
   saveAccounts(accounts);
   ['adm_id','adm_name','adm_pw'].forEach(f => document.getElementById(f).value = '');
   renderAdminAccountList();
