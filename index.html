@@ -796,7 +796,7 @@ html,body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text
           </div>
           <div style="display:flex;align-items:center;gap:6px;">
             <span style="font-size:11px;color:var(--text2);">Weight:</span>
-            <input class="form-input" type="number" id="doseCalcWt" style="width:70px;" placeholder="kg" step="0.1">
+            <input class="form-input" type="number" id="doseCalcWt" style="width:70px;" placeholder="kg" step="0.1" oninput="if(window._dcSelectedDrug){renderDoseResults(window._dcSelectedDrug,parseFloat(this.value)||0,'doseCalcSearch','doseCalcSearch');}">
             <span style="font-size:11px;color:var(--text2);">kg</span>
           </div>
         </div>
@@ -1072,7 +1072,7 @@ html,body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text
             </div>
             <div style="display:flex;align-items:center;gap:6px;">
               <span style="font-size:11px;color:var(--text2);">Weight:</span>
-              <input class="form-input" type="number" id="medCalcWt" style="width:70px;" placeholder="kg" step="0.1">
+              <input class="form-input" type="number" id="medCalcWt" style="width:70px;" placeholder="kg" step="0.1" oninput="if(window._mcSelectedDrug){renderDoseResults(window._mcSelectedDrug,parseFloat(this.value)||0,'medCalcSearch','medCalcSearch');}">
               <span style="font-size:11px;color:var(--text2);">kg</span>
             </div>
           </div>
@@ -3208,61 +3208,106 @@ function calcDoseForWeight(doseStr, wt) {
 }
 
 function renderDoseResults(drug, wt, targetDrugInput, targetDoseInput) {
-  const calcEl = targetDrugInput === 'doseCalcSearch' ? 'doseCalcResult' : 'medCalcResult';
-  if(!drug) { document.getElementById(calcEl).innerHTML = ''; return; }
+  const calcElId = targetDrugInput === 'doseCalcSearch' ? 'doseCalcResult' : 'medCalcResult';
+  const calcEl   = document.getElementById(calcElId);
+  if(!calcEl) return;
+  if(!drug)   { calcEl.innerHTML = ''; return; }
 
-  // Store drug data in a temporary registry keyed by element id
-  // to avoid ALL onclick string-escaping bugs
-  window._doseRegistry = window._doseRegistry || {};
-
+  // Build HTML (no onclick — events will be bound directly after insertion)
   const rows = drug.doses.map((d,i) => {
     if(!d.dose) return '';
     const calc = calcDoseForWeight(d.dose, wt);
-    const key  = `${targetDrugInput}_${Date.now()}_${i}`;
-    window._doseRegistry[key] = { drugName: drug.name, doseStr: d.dose, calcResult: calc, sourceInput: targetDrugInput };
-    return `<div class="dose-indication dose-use-row" data-dose-key="${key}" style="cursor:pointer;" title="Click to use this dose">
+    return `<div class="dose-indication dose-use-row" data-di="${i}" style="cursor:pointer;" title="Click to use this dose">
       <div class="dose-ind-name">${d.ind}</div>
       <div class="dose-ind-val">${d.dose}</div>
       ${calc ? `<div class="dose-ind-calc" style="font-weight:600;">${calc} <span style="font-size:9px;color:var(--accent);margin-left:8px;">← click to use</span></div>` : ''}
     </div>`;
   }).join('');
 
-  document.getElementById(calcEl).innerHTML =
+  calcEl.innerHTML =
     `<div style="margin-bottom:6px;font-size:12px;font-weight:600;color:var(--text);">${drug.name} <span style="font-size:10px;color:var(--text3);">${drug.class}</span></div>${rows}`;
+
+  // Bind click events directly — no registry, no string-escaping, no key collisions
+  calcEl.querySelectorAll('.dose-use-row').forEach(row => {
+    const i    = parseInt(row.dataset.di, 10);
+    const d    = drug.doses[i];
+    if(!d) return;
+    const calc = calcDoseForWeight(d.dose, wt);
+    row.addEventListener('click', function() {
+      useDose(drug.name, d.dose, calc, targetDrugInput);
+      row.style.background = 'rgba(86,211,100,0.18)';
+      setTimeout(() => row.style.background = '', 700);
+    });
+  });
 }
 
 function doseCalcSearch(q) {
   const dd = document.getElementById('doseCalcDropdown');
   if(!q || q.length < 2) { dd.style.display='none'; return; }
-  const results = DRUGS.filter(d => d.name.toLowerCase().includes(q.toLowerCase()) || d.generic.toLowerCase().includes(q.toLowerCase()) || d.class.toLowerCase().includes(q.toLowerCase())).slice(0,8);
+  const results = DRUGS.filter(d =>
+    d.name.toLowerCase().includes(q.toLowerCase()) ||
+    d.generic.toLowerCase().includes(q.toLowerCase()) ||
+    d.class.toLowerCase().includes(q.toLowerCase())
+  ).slice(0,8);
   if(results.length===0) { dd.style.display='none'; return; }
   dd.style.display='block';
-  dd.innerHTML = results.map(d => `<div class="dose-calc-item" onclick="selectDoseCalcDrug('${d.name.replace(/'/g,"\\'")}','doseCalcSearch')">
-    <div class="dci-name">${d.name}</div>
-    <div class="dci-class">${d.class} · ${d.routes.join(', ')}</div>
-  </div>`).join('');
+  dd.innerHTML = results.map((d,i) =>
+    `<div class="dose-calc-item" data-dcsi="${i}">
+      <div class="dci-name">${d.name}</div>
+      <div class="dci-class">${d.class} · ${d.routes.join(', ')}</div>
+    </div>`
+  ).join('');
+  // Bind clicks directly — no string escaping
+  dd.querySelectorAll('.dose-calc-item').forEach(item => {
+    const idx = parseInt(item.dataset.dcsi, 10);
+    const drug = results[idx];
+    item.addEventListener('click', () => selectDoseCalcDrugDirect(drug, 'doseCalcSearch'));
+  });
 }
 
 function medDoseCalcSearch(q) {
   const dd = document.getElementById('medCalcDropdown');
   if(!q || q.length < 2) { dd.style.display='none'; return; }
-  const results = DRUGS.filter(d => d.name.toLowerCase().includes(q.toLowerCase()) || d.generic.toLowerCase().includes(q.toLowerCase())).slice(0,8);
+  const results = DRUGS.filter(d =>
+    d.name.toLowerCase().includes(q.toLowerCase()) ||
+    d.generic.toLowerCase().includes(q.toLowerCase()) ||
+    d.class.toLowerCase().includes(q.toLowerCase())
+  ).slice(0,8);
   if(results.length===0) { dd.style.display='none'; return; }
   dd.style.display='block';
-  dd.innerHTML = results.map(d => `<div class="dose-calc-item" onclick="selectDoseCalcDrug('${d.name.replace(/'/g,"\\'")}','medCalcSearch')">
-    <div class="dci-name">${d.name}</div>
-    <div class="dci-class">${d.class} · ${d.routes.join(', ')}</div>
-  </div>`).join('');
+  dd.innerHTML = results.map((d,i) =>
+    `<div class="dose-calc-item" data-mcsi="${i}">
+      <div class="dci-name">${d.name}</div>
+      <div class="dci-class">${d.class} · ${d.routes.join(', ')}</div>
+    </div>`
+  ).join('');
+  // Bind clicks directly — no string escaping
+  dd.querySelectorAll('.dose-calc-item').forEach(item => {
+    const idx = parseInt(item.dataset.mcsi, 10);
+    const drug = results[idx];
+    item.addEventListener('click', () => selectDoseCalcDrugDirect(drug, 'medCalcSearch'));
+  });
 }
 
+// Direct version — receives drug object, no string passing
+function selectDoseCalcDrugDirect(drug, searchInputId) {
+  if(!drug) return;
+  document.getElementById(searchInputId).value = drug.name;
+  const ddId  = searchInputId === 'doseCalcSearch' ? 'doseCalcDropdown' : 'medCalcDropdown';
+  const wtId  = searchInputId === 'doseCalcSearch' ? 'doseCalcWt'       : 'medCalcWt';
+  document.getElementById(ddId).style.display = 'none';
+  const wt = parseFloat(document.getElementById(wtId).value);
+  renderDoseResults(drug, wt, searchInputId, searchInputId);
+
+  // Store selected drug so weight changes can re-render
+  const ns = searchInputId === 'doseCalcSearch' ? '_dcSelectedDrug' : '_mcSelectedDrug';
+  window[ns] = drug;
+}
+
+// Legacy stub kept for any remaining inline onclicks
 function selectDoseCalcDrug(drugName, searchInputId) {
   const drug = DRUGS.find(d => d.name === drugName);
-  if(!drug) return;
-  document.getElementById(searchInputId).value = drugName;
-  const ddId = searchInputId === 'doseCalcSearch' ? 'doseCalcDropdown' : 'medCalcDropdown';
-  document.getElementById(ddId).style.display='none';
-  const wt = parseFloat(document.getElementById(searchInputId === 'doseCalcSearch' ? 'doseCalcWt' : 'medCalcWt').value);
-  renderDoseResults(drug, wt, searchInputId, searchInputId);
+  selectDoseCalcDrugDirect(drug, searchInputId);
 }
 
 // ── DOSE STRING PARSERS ───────────────────────────────────────────────────────
@@ -3383,21 +3428,8 @@ function useDose(drugName, doseStr, calcResult, sourceInput) {
   }
 }
 
-// ── DELEGATED dose click handler (avoids all onclick string-escaping bugs) ────
+// ── Close dose dropdowns when clicking outside ────────────────────────────────
 document.addEventListener('click', function(e) {
-  const row = e.target.closest('.dose-use-row');
-  if(row) {
-    const key  = row.dataset.doseKey;
-    const data = window._doseRegistry && window._doseRegistry[key];
-    if(data) {
-      useDose(data.drugName, data.doseStr, data.calcResult, data.sourceInput);
-      // Visual feedback
-      row.style.background = 'rgba(86,211,100,0.15)';
-      setTimeout(() => row.style.background = '', 600);
-    }
-    return;
-  }
-  // Close dropdowns when clicking outside
   if(!e.target.closest('.dose-calc-search')) {
     document.querySelectorAll('.dose-calc-results').forEach(d => d.style.display='none');
   }
