@@ -1726,6 +1726,7 @@ function fbStartListener() {
       const incoming = Array.isArray(raw) ? raw : Object.values(raw);
       patients = incoming.filter(p => p && p.id);
       patients.forEach(p => {
+        if(!p.vitals)          p.vitals = {};
         if(!p.vitalsHistory)   p.vitalsHistory = [];
         if(!p.labPanels)       p.labPanels = [];
         if(!p.scannedReports)  p.scannedReports = [];
@@ -1774,6 +1775,7 @@ function loadData() {
   } catch(e) { patients = []; }
   if(!Array.isArray(patients)) patients = [];
   patients.forEach(p => {
+    if(!p.vitals)          p.vitals = {};
     if(!p.vitalsHistory)   p.vitalsHistory = [];
     if(!p.labPanels)       p.labPanels = [];
     if(!p.scannedReports)  p.scannedReports = [];
@@ -2830,6 +2832,8 @@ function saveVitals() {
   if(!vitalsTargetId) return;
   const p = getPatient(vitalsTargetId);
   if(!p) return;
+  if(!p.vitals) p.vitals = {};         // Guard: Firebase drops empty objects on sync
+  if(!p.vitalsHistory) p.vitalsHistory = [];
   const hr = parseInt(document.getElementById('vm_hr').value, 10);
   const rr = parseInt(document.getElementById('vm_rr').value, 10);
   const spo2 = parseInt(document.getElementById('vm_spo2').value, 10);
@@ -2872,6 +2876,10 @@ function saveVitals() {
   p.vitalsHistory.push(entry);
   saveData();
   closeModal('vitalsModal');
+
+  // Toast notification so nurse gets clear confirmation
+  showToast('✅ Vitals saved for ' + p.name);
+
   renderDashboard();
   if(selectedPatientId === vitalsTargetId) {
     renderPatientDetail(vitalsTargetId);
@@ -3296,11 +3304,12 @@ function parseFreqFromDose(doseStr) {
 
 function parseRouteFromDose(doseStr, drugRoutes) {
   const s = doseStr.toLowerCase();
-  if(s.includes('(iv)') || s.includes(' iv ') || s.match(/iv/))      return 'IV';
-  if(s.includes('(im)') || s.match(/im/))                             return 'IM';
-  if(s.includes('(po)') || s.match(/po/) || s.includes('oral'))       return 'PO';
-  if(s.includes('inh') || s.includes('nebul') || s.includes('inhale'))    return 'Inhaled';
-  if(s.includes('(sc)') || s.match(/sc/))                             return 'SC';
+  const words = s.split(/[\s,;().]+/);
+  if(s.includes('(iv)') || words.includes('iv'))      return 'IV';
+  if(s.includes('(im)') || words.includes('im'))      return 'IM';
+  if(s.includes('(po)') || words.includes('po') || s.includes('oral')) return 'PO';
+  if(s.includes('inh') || s.includes('nebul') || s.includes('inhale')) return 'Inhaled';
+  if(s.includes('(sc)') || words.includes('sc'))      return 'SC';
   if(s.includes('topical'))                                                return 'Topical';
   if(s.includes('intranas') || s.includes('nasal'))                       return 'Intranasal';
   // Fall back to first route in drug definition
@@ -3332,8 +3341,14 @@ function useDose(drugName, doseStr, calcResult, sourceInput) {
 
   } else if(sourceInput === 'medCalcSearch') {
     // ── Medication order modal ───────────────────────────────
-    document.getElementById('mm_drug').value  = drugName;
-    document.getElementById('mm_dose').value  = finalDose;
+    const drugEl = document.getElementById('mm_drug');
+    const doseEl = document.getElementById('mm_dose');
+    if(drugEl) drugEl.value = drugName;
+    if(doseEl) doseEl.value = finalDose;
+
+    // Auto-fill duration
+    const durEl = document.getElementById('mm_duration');
+    if(durEl && duration) durEl.value = duration;
 
     // Auto-select route
     const routeEl = document.getElementById('mm_route');
@@ -3353,9 +3368,18 @@ function useDose(drugName, doseStr, calcResult, sourceInput) {
       freqEl.value = match;
     }
 
-    // Scroll to the filled fields to confirm to the user
-    const doseEl = document.getElementById('mm_dose');
-    if(doseEl) doseEl.scrollIntoView({behavior:'smooth', block:'nearest'});
+    // Visual confirmation — flash the filled fields green
+    [drugEl, doseEl, durEl].forEach(el => {
+      if(!el) return;
+      const orig = el.style.borderColor;
+      el.style.borderColor = '#56d364';
+      el.style.transition   = 'border-color 0.4s';
+      setTimeout(() => { el.style.borderColor = orig; el.style.transition = ''; }, 1200);
+    });
+
+    // Scroll to top of modal so user can see the filled fields
+    const modalBody = document.querySelector('#medModal .modal-body');
+    if(modalBody) modalBody.scrollTop = 0;
   }
 }
 
@@ -3636,6 +3660,23 @@ function printDischargeCard(id) {
 // ============================================================
 function openModal(id) { document.getElementById(id).classList.add('open'); }
 function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+function showToast(msg, duration) {
+  duration = duration || 2500;
+  let el = document.getElementById('cwh_toast');
+  if(!el) {
+    el = document.createElement('div');
+    el.id = 'cwh_toast';
+    el.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:#23272e;color:#e6edf3;' +
+      'padding:10px 20px;border-radius:8px;font-size:13px;z-index:9999;box-shadow:0 4px 16px #0008;' +
+      'pointer-events:none;opacity:0;transition:opacity 0.25s;max-width:90vw;text-align:center;';
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+  el.style.opacity = '1';
+  clearTimeout(el._tid);
+  el._tid = setTimeout(() => { el.style.opacity = '0'; }, duration);
+}
 
 // Close modal on overlay click
 document.querySelectorAll('.modal-overlay').forEach(overlay => {
