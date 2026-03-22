@@ -1065,19 +1065,18 @@ html,body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text
         </div>
         <div class="form-section-title">💡 Dose Calculator (PediRx)</div>
         <div class="dose-calc-wrap">
-          <div style="display:flex;gap:10px;align-items:center;margin-bottom:10px;">
-            <div style="flex:1;position:relative;" class="dose-calc-search">
-              <input class="form-input" id="medCalcSearch" placeholder="Search drug from PediRx..." oninput="medDoseCalcSearch(this.value)" autocomplete="off">
-              <div id="medCalcDropdown" class="dose-calc-results" style="display:none;"></div>
+          <div style="display:flex;gap:10px;align-items:center;margin-bottom:10px;flex-wrap:wrap;">
+            <div style="flex:1;min-width:180px;position:relative;">
+              <input class="form-input" id="mcSearch" placeholder="Search drug..." oninput="mcSearchDrug(this.value)" autocomplete="off">
+              <div id="mcDrop" style="display:none;position:absolute;top:calc(100% + 3px);left:0;right:0;background:var(--surface);border:1px solid var(--border);border-radius:7px;z-index:999;max-height:200px;overflow-y:auto;"></div>
             </div>
             <div style="display:flex;align-items:center;gap:6px;">
-              <span style="font-size:11px;color:var(--text2);">Weight:</span>
-              <input class="form-input" type="number" id="medCalcWt" style="width:70px;" placeholder="kg" step="0.1" oninput="const s=window._calcState;if(s&&s.drug&&s.source==='medCalcSearch'){renderDoseResults(s.drug,parseFloat(this.value)||0,'medCalcSearch','medCalcSearch');}">
+              <span style="font-size:11px;color:var(--text2);">Wt:</span>
+              <input class="form-input" type="number" id="mcWt" style="width:65px;" placeholder="kg" step="0.1" oninput="mcRefresh()">
               <span style="font-size:11px;color:var(--text2);">kg</span>
             </div>
           </div>
-          <div id="medCalcResult"></div>
-          <div id="medCalcApplied"></div>
+          <div id="mcResult" style="margin-top:4px;"></div>
         </div>
       </div>
       <!-- IV Fluid fields -->
@@ -3025,11 +3024,11 @@ function openMedModal(id) {
   document.getElementById('mm_ptName').textContent = p ? p.name : '';
   ['drug','dose','instructions'].forEach(f => document.getElementById('mm_'+f).value = '');
   document.getElementById('mm_duration').value = '';
-  document.getElementById('medCalcWt').value = p ? p.weight||'' : '';
-  document.getElementById('medCalcSearch').value = '';
-  document.getElementById('medCalcResult').innerHTML = '';
-  document.getElementById('medCalcApplied').innerHTML = '';
-  document.getElementById('medCalcDropdown').style.display = 'none';
+  document.getElementById('mcWt').value = p ? p.weight||'' : '';
+  document.getElementById('mcSearch').value = '';
+  document.getElementById('mcResult').innerHTML = '';
+  document.getElementById('mcDrop').style.display = 'none';
+  window._mcDrug = null;
   // Reset O2 fields
   document.getElementById('mm_o2params').value = '';
   document.getElementById('mm_o2spo2').value = '';
@@ -3277,160 +3276,209 @@ function doseCalcSearch(q) {
   });
 }
 
-function medDoseCalcSearch(q) {
-  const dd = document.getElementById('medCalcDropdown');
-  if(!q || q.length < 2) { dd.style.display='none'; return; }
-  const results = DRUGS.filter(d =>
+// ═══════════════════════════════════════════════════════════
+// MED MODAL CALCULATOR — clean standalone implementation
+// Global: window._mcDrug = currently selected drug object
+// ═══════════════════════════════════════════════════════════
+
+function mcSearchDrug(q) {
+  const drop = document.getElementById('mcDrop');
+  if(!q || q.length < 2) { drop.style.display='none'; return; }
+  const hits = DRUGS.filter(d =>
     d.name.toLowerCase().includes(q.toLowerCase()) ||
     d.generic.toLowerCase().includes(q.toLowerCase()) ||
     d.class.toLowerCase().includes(q.toLowerCase())
-  ).slice(0,8);
-  if(results.length===0) { dd.style.display='none'; return; }
-  dd.style.display='block';
-  dd.innerHTML = results.map((d,i) =>
-    `<div class="dose-calc-item" data-mcsi="${i}">
-      <div class="dci-name">${d.name}</div>
-      <div class="dci-class">${d.class} · ${d.routes.join(', ')}</div>
-    </div>`
-  ).join('');
-  // Bind clicks directly — no string escaping
-  dd.querySelectorAll('.dose-calc-item').forEach(item => {
-    const idx = parseInt(item.dataset.mcsi, 10);
-    const drug = results[idx];
-    item.addEventListener('click', () => selectDoseCalcDrugDirect(drug, 'medCalcSearch'));
+  ).slice(0, 10);
+  if(!hits.length) { drop.style.display='none'; return; }
+
+  drop.innerHTML = hits.map(function(d, i) {
+    return '<div class="mc-drop-item" data-i="' + i + '" style="padding:8px 12px;cursor:pointer;font-size:12px;border-bottom:1px solid var(--border);">' +
+      '<span style="font-weight:600;color:var(--text);">' + d.name + '</span>' +
+      '<span style="font-size:10px;color:var(--text3);margin-left:8px;">' + d.class + ' · ' + d.routes.join('/') + '</span>' +
+      '</div>';
+  }).join('');
+  // Bind clicks via event delegation on the drop container
+  drop.querySelectorAll('.mc-drop-item').forEach(function(el) {
+    el.addEventListener('mouseenter', function(){ el.style.background='var(--surface2)'; });
+    el.addEventListener('mouseleave', function(){ el.style.background=''; });
+    el.addEventListener('click', function(){ mcPickDrug(parseInt(el.dataset.i, 10)); });
+  });
+
+  // Store hits array so mcPickDrug can index into it
+  window._mcHits = hits;
+  drop.style.display = 'block';
+}
+
+function mcPickDrug(i) {
+  const drug = window._mcHits[i];
+  if(!drug) return;
+  window._mcDrug = drug;
+  document.getElementById('mcSearch').value = drug.name;
+  document.getElementById('mcDrop').style.display = 'none';
+  mcRenderDoses();
+}
+
+function mcRefresh() {
+  if(window._mcDrug) mcRenderDoses();
+}
+
+function mcRenderDoses() {
+  const drug = window._mcDrug;
+  if(!drug) return;
+  const wt  = parseFloat(document.getElementById('mcWt').value) || 0;
+
+  let html = '<div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:6px;">' +
+    drug.name + ' <span style="color:var(--text3);font-weight:400;">' + drug.class + '</span></div>';
+
+  drug.doses.forEach(function(d, i) {
+    if(!d.dose) return;
+    var calc = mcCalc(d.dose, wt);
+    html += '<div class="mc-dose-row" data-i="' + i + '" style="padding:7px 10px;margin-bottom:4px;' +
+      'border:1px solid var(--border);border-radius:6px;background:var(--surface2);cursor:pointer;">' +
+      '<div style="font-size:11px;color:var(--text2);margin-bottom:3px;">' + d.ind + '</div>' +
+      '<div style="font-size:12px;color:var(--accent);font-family:monospace;">' + d.dose + '</div>' +
+      (calc ? '<div style="font-size:12px;font-weight:600;color:#56d364;margin-top:2px;">' + calc +
+        ' <span style="font-size:10px;color:var(--text3);">► click to use</span></div>' : '') +
+      '</div>';
+  });
+
+  var el = document.getElementById('mcResult');
+  el.innerHTML = html;
+  // Bind clicks via event delegation — no inline handlers
+  el.querySelectorAll('.mc-dose-row').forEach(function(row) {
+    row.addEventListener('mouseenter', function(){ row.style.borderColor='#56d364'; });
+    row.addEventListener('mouseleave', function(){ row.style.borderColor='var(--border)'; });
+    row.addEventListener('click', function(){ mcUse(parseInt(row.dataset.i, 10)); });
   });
 }
 
-// Direct version — receives drug object, no string passing
-function selectDoseCalcDrugDirect(drug, searchInputId) {
-  if(!drug) return;
-  document.getElementById(searchInputId).value = drug.name;
-  const ddId = searchInputId === 'doseCalcSearch' ? 'doseCalcDropdown' : 'medCalcDropdown';
-  const wtId = searchInputId === 'doseCalcSearch' ? 'doseCalcWt'       : 'medCalcWt';
-  document.getElementById(ddId).style.display = 'none';
-  const wt = parseFloat(document.getElementById(wtId).value) || 0;
-  renderDoseResults(drug, wt, searchInputId, searchInputId);
+function mcCalc(doseStr, wt) {
+  if(!wt || wt <= 0) return '';
+  var mgMatch = doseStr.match(/([\d.]+)\s*[–\-]\s*([\d.]+)\s*mg\/kg|^([\d.]+)\s*mg\/kg/);
+  if(mgMatch) {
+    var lo = parseFloat(mgMatch[1] || mgMatch[3]);
+    var hi = mgMatch[2] ? parseFloat(mgMatch[2]) : null;
+    return hi ? '= ' + (lo*wt).toFixed(1) + '–' + (hi*wt).toFixed(1) + ' mg'
+              : '= ' + (lo*wt).toFixed(1) + ' mg';
+  }
+  var mcgMatch = doseStr.match(/([\d.]+)\s*[–\-]\s*([\d.]+)\s*mcg\/kg|^([\d.]+)\s*mcg\/kg/);
+  if(mcgMatch) {
+    var lo2 = parseFloat(mcgMatch[1] || mcgMatch[3]);
+    var hi2 = mcgMatch[2] ? parseFloat(mcgMatch[2]) : null;
+    return hi2 ? '= ' + (lo2*wt).toFixed(1) + '–' + (hi2*wt).toFixed(1) + ' mcg'
+               : '= ' + (lo2*wt).toFixed(1) + ' mcg';
+  }
+  return '';
 }
 
-// Legacy stub — safe to call from any remaining inline onclicks
-function selectDoseCalcDrug(drugName, searchInputId) {
-  const drug = DRUGS.find(d => d.name === drugName);
-  if(drug) selectDoseCalcDrugDirect(drug, searchInputId);
-}
-
-// ── DOSE STRING PARSERS ───────────────────────────────────────────────────────
-function parseFreqFromDose(doseStr) {
-  const s = doseStr.toLowerCase();
-  // Textual single-dose indicators (check before interval parsing)
+function mcFreq(doseStr) {
+  var s = doseStr.toLowerCase();
   if(s.includes('stat') || s.includes('single dose')) return 'Stat';
-  // Explicit interval notation (÷ q8h, ÷ q6–8h — pick shorter interval)
-  const divMatch = s.match(/÷\s*q(\d+)(?:[–\-](\d+))?h/);
-  if(divMatch) {
-    const hrs = parseInt(divMatch[1], 10);
-    if(hrs <= 4)  return 'q4h';
-    if(hrs <= 6)  return 'q6h';
-    if(hrs <= 8)  return 'q8h';
-    if(hrs <= 12) return 'q12h';
+  var dm = s.match(/÷\s*q(\d+)/);
+  if(dm) {
+    var h = parseInt(dm[1],10);
+    if(h<=4)  return 'q4h';
+    if(h<=6)  return 'q6h';
+    if(h<=8)  return 'q8h';
+    if(h<=12) return 'q12h';
     return 'q24h';
   }
-  // Standalone interval (q6h, q8h, q12h without ÷)
-  const qMatch = s.match(/\bq(\d+)(?:[\u2013\-]\d+)?h\b/);
-  if(qMatch) {
-    const hrs = parseInt(qMatch[1], 10);
-    if(hrs <= 4)  return 'q4h';
-    if(hrs <= 6)  return 'q6h';
-    if(hrs <= 8)  return 'q8h';
-    if(hrs <= 12) return 'q12h';
+  var qm = s.match(/q(\d+)h/);
+  if(qm) {
+    var h2 = parseInt(qm[1],10);
+    if(h2<=4)  return 'q4h';
+    if(h2<=6)  return 'q6h';
+    if(h2<=8)  return 'q8h';
+    if(h2<=12) return 'q12h';
     return 'q24h';
   }
-  // Textual frequency
-  if(s.includes('4 times') || s.includes('qid') || s.includes('four times')) return 'QID';
-  if(s.includes('3 times') || s.includes('tds') || s.includes('tid') || s.includes('three times')) return 'TDS';
-  if(s.includes('twice') || s.includes('bd') || s.includes('bid') || s.includes('2 times')) return 'BD';
-  if(s.includes('once') || s.includes('od') || s.includes('once daily') || s.includes('once a day')) return 'OD';
+  if(s.includes('4 times') || s.includes('qid')) return 'QID';
+  if(s.includes('3 times') || s.includes('tds') || s.includes('tid')) return 'TDS';
+  if(s.includes('twice')   || s.includes('bd')  || s.includes('bid')) return 'BD';
+  if(s.includes('once')    || s.includes('od'))  return 'OD';
   if(s.includes('prn') || s.includes('as needed')) return 'PRN';
-  // Infer from dose frequency divided hint
-  if(s.includes('÷ q') && s.includes('h')) return 'TDS'; // generic fallback
-  // Fallback: once daily for single totals, TDS for divided doses
   return s.includes('÷') || s.includes('divided') ? 'TDS' : 'OD';
 }
 
-function parseRouteFromDose(doseStr, drugRoutes) {
-  const s = doseStr.toLowerCase();
-  const words = s.split(/[\s,;().]+/);
-  if(s.includes('(iv)') || words.includes('iv'))      return 'IV';
-  if(s.includes('(im)') || words.includes('im'))      return 'IM';
-  if(s.includes('(po)') || words.includes('po') || s.includes('oral')) return 'PO';
-  if(s.includes('inh') || s.includes('nebul') || s.includes('inhale')) return 'Inhaled';
-  if(s.includes('(sc)') || words.includes('sc'))      return 'SC';
-  if(s.includes('topical'))                                                return 'Topical';
-  if(s.includes('intranas') || s.includes('nasal'))                       return 'Intranasal';
-  // Fall back to first route in drug definition
-  if(drugRoutes && drugRoutes.length > 0) return drugRoutes[0];
-  return 'PO';
+function mcRoute(doseStr, drugRoutes) {
+  var s = doseStr.toLowerCase();
+  var words = s.split(/[\s,;().\/]+/);
+  if(words.includes('iv') || s.includes('(iv)')) return 'IV';
+  if(words.includes('im') || s.includes('(im)')) return 'IM';
+  if(words.includes('sc') || s.includes('(sc)')) return 'SC';
+  if(s.includes('oral') || words.includes('po') || s.includes('(po)')) return 'PO';
+  if(s.includes('nebu') || s.includes('inh'))  return 'Inhaled';
+  if(s.includes('topical'))                     return 'Topical';
+  if(s.includes('nasal'))                       return 'Intranasal';
+  return (drugRoutes && drugRoutes.length) ? drugRoutes[0] : 'PO';
 }
 
-function parseDurationFromDose(doseStr) {
-  // e.g. "× 10 days", "× 7–10 days", "× 2 weeks", "× 5 days"
-  const dayMatch = doseStr.match(/[×x]\s*(\d+)(?:[–\-]\d+)?\s*days?/i);
-  if(dayMatch) return dayMatch[1] + ' days';
-  const wkMatch  = doseStr.match(/[×x]\s*(\d+)(?:[–\-]\d+)?\s*weeks?/i);
-  if(wkMatch)  return wkMatch[1] + ' weeks';
+function mcDur(doseStr) {
+  var dm = doseStr.match(/[x×]\s*(\d+)(?:[–\-]\d+)?\s*days?/i);
+  if(dm) return dm[1] + ' days';
+  var wm = doseStr.match(/[x×]\s*(\d+)(?:[–\-]\d+)?\s*weeks?/i);
+  if(wm) return wm[1] + ' weeks';
   return '';
 }
-// ─────────────────────────────────────────────────────────────────────────────
 
-function useDose(drugName, doseStr, calcResult, sourceInput) {
-  const drug     = DRUGS.find(d => d.name === drugName);
-  const routes   = drug ? drug.routes : ['PO'];
-  const freq     = parseFreqFromDose(doseStr);
-  const route    = parseRouteFromDose(doseStr, routes);
-  const duration = parseDurationFromDose(doseStr);
-  const finalDose = calcResult ? calcResult.replace(/^=\s*/,'').trim() : doseStr.split('÷')[0].trim();
+function mcUse(i) {
+  var drug = window._mcDrug;
+  if(!drug) { alert('Please select a drug first'); return; }
+  var d = drug.doses[i];
+  if(!d) return;
 
-  if(sourceInput === 'doseCalcSearch') {
-    // ── Discharge medication row ─────────────────────────────
-    addDischargeMedRow(drugName, finalDose, route, freq, duration);
+  var wt    = parseFloat(document.getElementById('mcWt').value) || 0;
+  var calc  = mcCalc(d.dose, wt);
+  var freq  = mcFreq(d.dose);
+  var route = mcRoute(d.dose, drug.routes);
+  var dur   = mcDur(d.dose);
+  var finalDose = calc ? calc.replace(/^=\s*/,'').trim() : d.dose.split('÷')[0].trim();
 
-  } else if(sourceInput === 'medCalcSearch') {
-    // ── Medication order modal ───────────────────────────────
-    document.getElementById('mm_drug').value = drugName;
-    document.getElementById('mm_dose').value = finalDose;
-    if(duration) document.getElementById('mm_duration').value = duration;
+  // Fill the form fields directly
+  document.getElementById('mm_drug').value = drug.name;
+  document.getElementById('mm_dose').value = finalDose;
+  if(dur) document.getElementById('mm_duration').value = dur;
 
-    // Auto-select route
-    const routeEl = document.getElementById('mm_route');
-    if(routeEl) {
-      const rOpts = Array.from(routeEl.options).map(o => o.value);
-      routeEl.value = rOpts.find(o => o.toLowerCase() === route.toLowerCase()) || rOpts[0];
-    }
-
-    // Auto-select frequency
-    const freqEl = document.getElementById('mm_freq');
-    if(freqEl) {
-      const fOpts = Array.from(freqEl.options).map(o => o.value);
-      freqEl.value = fOpts.find(o => o.toLowerCase() === freq.toLowerCase()) ||
-                     fOpts.find(o => o.replace(/h$/i,'') === freq.replace(/h$/i,'')) ||
-                     fOpts[0];
-    }
-
-    // ── Scroll modal to TOP so filled fields are visible ────
-    const modalEl = document.querySelector('#medModal .modal');
-    if(modalEl) modalEl.scrollTop = 0;
-
-    // ── Show applied-banner inside the calc area ─────────────
-    const banner = document.getElementById('medCalcApplied');
-    if(banner) {
-      banner.innerHTML = `<div style="background:rgba(86,211,100,0.15);border:1px solid #56d364;border-radius:7px;
-        padding:8px 12px;font-size:12px;color:#56d364;margin-top:8px;">
-        ✅ <strong>Applied:</strong> ${drugName} — ${finalDose} · ${routeEl ? routeEl.value : route} · ${freqEl ? freqEl.value : freq}${duration ? ' · ' + duration : ''}
-        <span style="font-size:10px;opacity:0.7;margin-left:6px;">(scroll up to see filled fields)</span>
-      </div>`;
-    }
-
-    showToast('✅ ' + drugName + ' — ' + finalDose + ' applied to form');
+  var routeEl = document.getElementById('mm_route');
+  if(routeEl) {
+    var ro = Array.from(routeEl.options);
+    var rm = ro.find(function(o){ return o.value.toLowerCase()===route.toLowerCase(); });
+    routeEl.value = rm ? rm.value : ro[0].value;
   }
+
+  var freqEl = document.getElementById('mm_freq');
+  if(freqEl) {
+    var fo = Array.from(freqEl.options);
+    var fm = fo.find(function(o){ return o.value.toLowerCase()===freq.toLowerCase(); }) ||
+             fo.find(function(o){ return o.value.replace(/h$/i,'')===freq.replace(/h$/i,''); });
+    freqEl.value = fm ? fm.value : fo[0].value;
+  }
+
+  // Show confirmation banner in calc area
+  document.getElementById('mcResult').insertAdjacentHTML('afterbegin',
+    '<div style="background:rgba(86,211,100,0.15);border:1px solid #56d364;border-radius:6px;' +
+    'padding:8px 12px;font-size:12px;color:#56d364;margin-bottom:8px;">' +
+    '✅ <strong>' + drug.name + '</strong> &mdash; ' + finalDose +
+    ' &middot; ' + (routeEl ? routeEl.value : route) +
+    ' &middot; ' + (freqEl ? freqEl.value : freq) +
+    (dur ? ' &middot; ' + dur : '') +
+    ' &nbsp;<span style="font-size:10px;color:var(--text2);">Scroll up to see filled fields ↑</span>' +
+    '</div>'
+  );
+
+  // Scroll modal to top to show filled fields
+  var modal = document.querySelector('#medModal .modal');
+  if(modal) modal.scrollTop = 0;
 }
+
+// Close mcDrop when clicking outside
+document.addEventListener('click', function(e) {
+  if(!e.target.closest('#mcSearch') && !e.target.closest('#mcDrop')) {
+    var drop = document.getElementById('mcDrop');
+    if(drop) drop.style.display = 'none';
+  }
+});
+
 
 // ── Close dose dropdowns when clicking outside ────────────────────────────────
 document.addEventListener('click', function(e) {
