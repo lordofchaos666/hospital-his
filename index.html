@@ -796,7 +796,7 @@ html,body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text
           </div>
           <div style="display:flex;align-items:center;gap:6px;">
             <span style="font-size:11px;color:var(--text2);">Weight:</span>
-            <input class="form-input" type="number" id="doseCalcWt" style="width:70px;" placeholder="kg" step="0.1" oninput="if(window._dcSelectedDrug){renderDoseResults(window._dcSelectedDrug,parseFloat(this.value)||0,'doseCalcSearch','doseCalcSearch');}">
+            <input class="form-input" type="number" id="doseCalcWt" style="width:70px;" placeholder="kg" step="0.1" oninput="const s=window._calcState;if(s&&s.drug&&s.source==='doseCalcSearch'){renderDoseResults(s.drug,parseFloat(this.value)||0,'doseCalcSearch','doseCalcSearch');}">
             <span style="font-size:11px;color:var(--text2);">kg</span>
           </div>
         </div>
@@ -1072,7 +1072,7 @@ html,body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text
             </div>
             <div style="display:flex;align-items:center;gap:6px;">
               <span style="font-size:11px;color:var(--text2);">Weight:</span>
-              <input class="form-input" type="number" id="medCalcWt" style="width:70px;" placeholder="kg" step="0.1" oninput="if(window._mcSelectedDrug){renderDoseResults(window._mcSelectedDrug,parseFloat(this.value)||0,'medCalcSearch','medCalcSearch');}">
+              <input class="form-input" type="number" id="medCalcWt" style="width:70px;" placeholder="kg" step="0.1" oninput="const s=window._calcState;if(s&&s.drug&&s.source==='medCalcSearch'){renderDoseResults(s.drug,parseFloat(this.value)||0,'medCalcSearch','medCalcSearch');}">
               <span style="font-size:11px;color:var(--text2);">kg</span>
             </div>
           </div>
@@ -3207,38 +3207,59 @@ function calcDoseForWeight(doseStr, wt) {
   return '';
 }
 
+// ── Global calc state — avoids ALL string-passing and closure capture bugs ────
+window._calcState = { drug: null, wt: 0, source: '' };
+
 function renderDoseResults(drug, wt, targetDrugInput, targetDoseInput) {
   const calcElId = targetDrugInput === 'doseCalcSearch' ? 'doseCalcResult' : 'medCalcResult';
   const calcEl   = document.getElementById(calcElId);
   if(!calcEl) return;
   if(!drug)   { calcEl.innerHTML = ''; return; }
 
-  // Build HTML (no onclick — events will be bound directly after insertion)
-  const rows = drug.doses.map((d,i) => {
+  // Save drug + context globally so onclick handlers can access by integer index only
+  window._calcState = { drug: drug, wt: wt, source: targetDrugInput };
+
+  const rows = drug.doses.map((d, i) => {
     if(!d.dose) return '';
     const calc = calcDoseForWeight(d.dose, wt);
-    return `<div class="dose-indication dose-use-row" data-di="${i}" style="cursor:pointer;" title="Click to use this dose">
+    // onclick passes ONLY an integer — no string escaping whatsoever
+    return `<div class="dose-indication" style="cursor:pointer;border-radius:5px;transition:background 0.15s;"
+              onmouseenter="this.style.background='rgba(86,211,100,0.08)'"
+              onmouseleave="this.style.background=''"
+              onclick="applyDoseRow(${i})">
       <div class="dose-ind-name">${d.ind}</div>
       <div class="dose-ind-val">${d.dose}</div>
-      ${calc ? `<div class="dose-ind-calc" style="font-weight:600;">${calc} <span style="font-size:9px;color:var(--accent);margin-left:8px;">← click to use</span></div>` : ''}
+      ${calc ? `<div class="dose-ind-calc" style="font-weight:600;">${calc}
+        <span style="font-size:9px;color:var(--accent3);margin-left:8px;font-weight:400;">✓ click to use</span>
+      </div>` : '<div style="font-size:10px;color:var(--text3);margin-top:2px;">Enter weight above to calculate dose</div>'}
     </div>`;
   }).join('');
 
   calcEl.innerHTML =
-    `<div style="margin-bottom:6px;font-size:12px;font-weight:600;color:var(--text);">${drug.name} <span style="font-size:10px;color:var(--text3);">${drug.class}</span></div>${rows}`;
+    `<div style="margin-bottom:6px;font-size:12px;font-weight:600;color:var(--text);">${drug.name}
+      <span style="font-size:10px;color:var(--text3);margin-left:6px;">${drug.class}</span>
+    </div>${rows}`;
+}
 
-  // Bind click events directly — no registry, no string-escaping, no key collisions
-  calcEl.querySelectorAll('.dose-use-row').forEach(row => {
-    const i    = parseInt(row.dataset.di, 10);
-    const d    = drug.doses[i];
-    if(!d) return;
-    const calc = calcDoseForWeight(d.dose, wt);
-    row.addEventListener('click', function() {
-      useDose(drug.name, d.dose, calc, targetDrugInput);
-      row.style.background = 'rgba(86,211,100,0.18)';
-      setTimeout(() => row.style.background = '', 700);
-    });
-  });
+// Called by onclick="applyDoseRow(i)" — receives only an integer
+function applyDoseRow(i) {
+  const state = window._calcState;
+  if(!state || !state.drug) return;
+  const d    = state.drug.doses[i];
+  if(!d) return;
+  const calc = calcDoseForWeight(d.dose, state.wt);
+  useDose(state.drug.name, d.dose, calc, state.source);
+
+  // Flash the row green
+  const calcElId = state.source === 'doseCalcSearch' ? 'doseCalcResult' : 'medCalcResult';
+  const calcEl   = document.getElementById(calcElId);
+  if(calcEl) {
+    const rows = calcEl.querySelectorAll('.dose-indication');
+    if(rows[i]) {
+      rows[i].style.background = 'rgba(86,211,100,0.22)';
+      setTimeout(() => rows[i].style.background = '', 800);
+    }
+  }
 }
 
 function doseCalcSearch(q) {
@@ -3293,21 +3314,17 @@ function medDoseCalcSearch(q) {
 function selectDoseCalcDrugDirect(drug, searchInputId) {
   if(!drug) return;
   document.getElementById(searchInputId).value = drug.name;
-  const ddId  = searchInputId === 'doseCalcSearch' ? 'doseCalcDropdown' : 'medCalcDropdown';
-  const wtId  = searchInputId === 'doseCalcSearch' ? 'doseCalcWt'       : 'medCalcWt';
+  const ddId = searchInputId === 'doseCalcSearch' ? 'doseCalcDropdown' : 'medCalcDropdown';
+  const wtId = searchInputId === 'doseCalcSearch' ? 'doseCalcWt'       : 'medCalcWt';
   document.getElementById(ddId).style.display = 'none';
-  const wt = parseFloat(document.getElementById(wtId).value);
+  const wt = parseFloat(document.getElementById(wtId).value) || 0;
   renderDoseResults(drug, wt, searchInputId, searchInputId);
-
-  // Store selected drug so weight changes can re-render
-  const ns = searchInputId === 'doseCalcSearch' ? '_dcSelectedDrug' : '_mcSelectedDrug';
-  window[ns] = drug;
 }
 
-// Legacy stub kept for any remaining inline onclicks
+// Legacy stub — safe to call from any remaining inline onclicks
 function selectDoseCalcDrug(drugName, searchInputId) {
   const drug = DRUGS.find(d => d.name === drugName);
-  selectDoseCalcDrugDirect(drug, searchInputId);
+  if(drug) selectDoseCalcDrugDirect(drug, searchInputId);
 }
 
 // ── DOSE STRING PARSERS ───────────────────────────────────────────────────────
