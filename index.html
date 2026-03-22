@@ -659,6 +659,114 @@ html,body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text
       </div>
       <div id="dmMedsContainer"></div>
       <button class="btn btn-secondary btn-sm" onclick="addDischargeMedRow()" style="margin-top:6px;">+ Add Medication</button>
+      <!-- ══ NEWBORN SCREENING SECTION (shown only for NICU patients) ══ -->
+      <div id="dm_newbornSection" style="display:none;">
+        <div class="form-section-title" style="margin-top:14px;color:#e3b341;">👶 Neonatal Screening Checklist</div>
+
+        <!-- CCHD -->
+        <div style="background:rgba(33,150,243,0.07);border:1px solid rgba(33,150,243,0.3);border-radius:9px;padding:13px 15px;margin-bottom:10px;">
+          <div style="font-size:12px;font-weight:700;color:#58a6ff;margin-bottom:8px;">🫀 CCHD Screening (Critical Congenital Heart Disease)</div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px;">
+            <label style="font-size:12px;display:flex;align-items:center;gap:5px;cursor:pointer;">
+              <input type="checkbox" id="dm_cchd_done"> <span>Pulse oximetry screening done (after 24h of life)</span>
+            </label>
+          </div>
+          <div class="form-grid cols3" style="margin-bottom:8px;">
+            <div class="form-group"><label class="form-label">Right Hand SpO₂ (%)</label><input class="form-input" id="dm_cchd_rh" type="number" placeholder="e.g. 98" min="70" max="100"></div>
+            <div class="form-group"><label class="form-label">Right Foot SpO₂ (%)</label><input class="form-input" id="dm_cchd_rf" type="number" placeholder="e.g. 97" min="70" max="100"></div>
+            <div class="form-group"><label class="form-label">Result</label>
+              <select class="form-select" id="dm_cchd_result">
+                <option value="">— Select —</option>
+                <option value="Pass">✅ Pass (both ≥95%, diff ≤3%)</option>
+                <option value="Refer">⚠️ Refer — Paediatric Cardiology</option>
+                <option value="Not done">Not done / Not applicable</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- OAE / BERA -->
+        <div style="background:rgba(86,211,100,0.07);border:1px solid rgba(86,211,100,0.3);border-radius:9px;padding:13px 15px;margin-bottom:10px;">
+          <div style="font-size:12px;font-weight:700;color:#56d364;margin-bottom:8px;">👂 Hearing Screening (OAE / BERA)</div>
+          <div class="form-grid cols3">
+            <div class="form-group"><label class="form-label">OAE Done</label>
+              <select class="form-select" id="dm_oae_done">
+                <option value="">— Select —</option>
+                <option value="Yes">Yes</option>
+                <option value="No">No</option>
+              </select>
+            </div>
+            <div class="form-group"><label class="form-label">OAE Result</label>
+              <select class="form-select" id="dm_oae_result">
+                <option value="">— Select —</option>
+                <option value="Pass — Bilateral">✅ Pass — Bilateral</option>
+                <option value="Refer — Right ear">⚠️ Refer — Right ear</option>
+                <option value="Refer — Left ear">⚠️ Refer — Left ear</option>
+                <option value="Refer — Bilateral">⚠️ Refer — Bilateral</option>
+                <option value="Not done">Not done</option>
+              </select>
+            </div>
+            <div class="form-group"><label class="form-label">BERA Required</label>
+              <select class="form-select" id="dm_bera">
+                <option value="">— Select —</option>
+                <option value="Not required">Not required</option>
+                <option value="Scheduled">Scheduled</option>
+                <option value="Referred to ENT">Referred to ENT/Audiology</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- ROP -->
+        <div style="background:rgba(188,140,255,0.07);border:1px solid rgba(188,140,255,0.3);border-radius:9px;padding:13px 15px;margin-bottom:10px;">
+          <div style="font-size:12px;font-weight:700;color:#bc8cff;margin-bottom:8px;">👁️ ROP Screening (Retinopathy of Prematurity)</div>
+          <div style="font-size:11px;color:var(--text2);margin-bottom:8px;">Indicated if: gestational age &lt;32 weeks OR birth weight &lt;1500g (or &lt;2000g with risk factors)</div>
+          <div class="form-grid cols3">
+            <div class="form-group"><label class="form-label">1st Screening Done</label>
+              <select class="form-select" id="dm_rop_done">
+                <option value="">— Select —</option>
+                <option value="Done — No ROP">✅ Done — No ROP</option>
+                <option value="Done — ROP detected">⚠️ Done — ROP detected</option>
+                <option value="Not applicable">Not applicable</option>
+                <option value="Pending">Pending</option>
+              </select>
+            </div>
+            <div class="form-group"><label class="form-label">Next ROP Screening</label>
+              <input class="form-input" type="date" id="dm_rop_next">
+            </div>
+            <div class="form-group"><label class="form-label">Ophthalmology Referral</label>
+              <select class="form-select" id="dm_rop_refer">
+                <option value="">— Select —</option>
+                <option value="Not required">Not required</option>
+                <option value="Referred">Referred</option>
+                <option value="Appointment given">Appointment given</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- DANGER SIGNS -->
+        <div style="background:rgba(248,81,73,0.07);border:1.5px solid rgba(248,81,73,0.4);border-radius:9px;padding:13px 15px;margin-bottom:10px;">
+          <div style="font-size:12px;font-weight:700;color:#f85149;margin-bottom:8px;">⚠️ Danger Signs — Return to Hospital Immediately if Present</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;font-size:11px;color:var(--text);margin-bottom:8px;">
+            <span>🔴 Not feeding / refuses breast / vomiting</span>
+            <span>🔴 Excessive crying or unusually quiet / lethargic</span>
+            <span>🔴 Fast breathing (&gt;60/min) or chest indrawing</span>
+            <span>🔴 Fever &gt;38°C or hypothermia &lt;36°C</span>
+            <span>🔴 Jaundice spreading to palms &amp; soles</span>
+            <span>🔴 Convulsions / fits / abnormal movements</span>
+            <span>🔴 Bleeding from any site</span>
+            <span>🔴 Skin pustules or widespread rash</span>
+            <span>🔴 Umbilical redness / pus / foul smell</span>
+            <span>🔴 Not passing urine for &gt;8 hours</span>
+          </div>
+          <div style="font-size:11px;background:rgba(248,81,73,0.12);border-radius:6px;padding:7px 10px;color:#f85149;font-weight:600;">
+            🏥 Visit Chandrawati Hospital OPD or Emergency immediately — do not wait for the next scheduled appointment.
+          </div>
+        </div>
+      </div>
+      <!-- ══ END NEWBORN SECTION ══ -->
+
       <div class="form-section-title" style="margin-top:14px;">💊 Dose Calculator</div>
       <div class="dose-calc-wrap">
         <div style="display:flex;gap:10px;align-items:center;margin-bottom:10px;">
@@ -2501,6 +2609,25 @@ function openDischargeModal(id) {
   document.getElementById('doseCalcResult').innerHTML = '';
   document.getElementById('doseCalcDropdown').style.display = 'none';
   addDischargeMedRow(); // start with one empty row
+
+  // Show newborn screening section for NICU patients
+  const isNICU = (p.ward === 'NICU');
+  const newbornSection = document.getElementById('dm_newbornSection');
+  if(newbornSection) {
+    newbornSection.style.display = isNICU ? 'block' : 'none';
+    // Reset all newborn fields
+    if(isNICU) {
+      ['dm_cchd_done'].forEach(id => { const el=document.getElementById(id); if(el) el.checked=false; });
+      ['dm_cchd_rh','dm_cchd_rf'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
+      ['dm_cchd_result','dm_oae_done','dm_oae_result','dm_bera','dm_rop_done','dm_rop_refer'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
+      const ropNext = document.getElementById('dm_rop_next'); if(ropNext) ropNext.value='';
+    }
+  }
+
+  // Update modal title to reflect patient type
+  const hdr = document.querySelector('#dischargeModal .modal-hdr h3');
+  if(hdr) hdr.innerHTML = (isNICU ? '👶 Newborn Discharge' : '🏠 Discharge Patient') + ' — <span id="dm_ptName">' + p.name + '</span>';
+
   document.getElementById('dischargeModal').classList.add('open');
   setupEnterNav('dischargeModal');
 }
@@ -2549,6 +2676,27 @@ function confirmDischarge() {
     }
   });
 
+  // Collect newborn screening data if NICU patient
+  const isNICU = (p.ward === 'NICU');
+  const newbornScreening = isNICU ? {
+    cchd: {
+      done: document.getElementById('dm_cchd_done')?.checked || false,
+      rhSpO2: document.getElementById('dm_cchd_rh')?.value || '',
+      rfSpO2: document.getElementById('dm_cchd_rf')?.value || '',
+      result: document.getElementById('dm_cchd_result')?.value || ''
+    },
+    oae: {
+      done: document.getElementById('dm_oae_done')?.value || '',
+      result: document.getElementById('dm_oae_result')?.value || '',
+      bera: document.getElementById('dm_bera')?.value || ''
+    },
+    rop: {
+      done: document.getElementById('dm_rop_done')?.value || '',
+      nextDate: document.getElementById('dm_rop_next')?.value || '',
+      referral: document.getElementById('dm_rop_refer')?.value || ''
+    }
+  } : null;
+
   p.status = 'discharged';
   p.dischargeInfo = {
     date: document.getElementById('dm_date').value,
@@ -2558,6 +2706,7 @@ function confirmDischarge() {
     instructions: document.getElementById('dm_instructions').value,
     followUp: document.getElementById('dm_followup').value,
     followUpLoc: document.getElementById('dm_followupLoc').value,
+    newbornScreening,
     medications: dischMeds
   };
 
@@ -3202,6 +3351,75 @@ function printDischargeCard(id) {
     ${di.instructions?`<div class="section"><div class="section-title">Instructions & Advice</div><div class="section-body">${di.instructions}</div></div>`:''}
 
     ${di.followUp?`<div class="section"><div class="section-title">Follow-up</div><div class="section-body"><strong>Date:</strong> ${di.followUp} &nbsp;|&nbsp; <strong>Location:</strong> ${di.followUpLoc||'Chandrawati Hospital OPD'}</div></div>`:''}
+
+    ${di.newbornScreening ? `
+    <!-- ═══ NEWBORN SCREENING SECTION ═══ -->
+    <div style="page-break-inside:avoid;">
+      <div class="section-title" style="color:#1565c0;border-color:#1565c0;margin-top:14px;">👶 NEONATAL SCREENING RECORD</div>
+
+      <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:12px;">
+        <thead>
+          <tr style="background:#e3f2fd;">
+            <th style="padding:8px 10px;text-align:left;border:1px solid #bbdefb;font-size:11px;color:#1565c0;">Screening Test</th>
+            <th style="padding:8px 10px;text-align:left;border:1px solid #bbdefb;font-size:11px;color:#1565c0;">Details</th>
+            <th style="padding:8px 10px;text-align:left;border:1px solid #bbdefb;font-size:11px;color:#1565c0;">Result / Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style="padding:8px 10px;border:1px solid #ddd;font-weight:600;">🫀 CCHD Screening<br><span style="font-size:10px;color:#666;font-weight:400;">Pulse Oximetry (&gt;24h life)</span></td>
+            <td style="padding:8px 10px;border:1px solid #ddd;font-size:11px;">
+              ${di.newbornScreening.cchd.done ? '✅ Screening done' : '—'}<br>
+              ${di.newbornScreening.cchd.rhSpO2 ? `Right hand SpO₂: <b>${di.newbornScreening.cchd.rhSpO2}%</b>` : ''}<br>
+              ${di.newbornScreening.cchd.rfSpO2 ? `Right foot SpO₂: <b>${di.newbornScreening.cchd.rfSpO2}%</b>` : ''}
+            </td>
+            <td style="padding:8px 10px;border:1px solid #ddd;font-weight:600;color:${di.newbornScreening.cchd.result==='Pass'?'#2e7d32':di.newbornScreening.cchd.result==='Refer'?'#c62828':'#555'};">
+              ${di.newbornScreening.cchd.result || '—'}
+            </td>
+          </tr>
+          <tr style="background:#fafafa;">
+            <td style="padding:8px 10px;border:1px solid #ddd;font-weight:600;">👂 Hearing Screening<br><span style="font-size:10px;color:#666;font-weight:400;">OAE / BERA</span></td>
+            <td style="padding:8px 10px;border:1px solid #ddd;font-size:11px;">
+              OAE: ${di.newbornScreening.oae.done || '—'}<br>
+              ${di.newbornScreening.oae.bera ? `BERA: ${di.newbornScreening.oae.bera}` : ''}
+            </td>
+            <td style="padding:8px 10px;border:1px solid #ddd;font-weight:600;color:${(di.newbornScreening.oae.result||'').startsWith('Pass')?'#2e7d32':(di.newbornScreening.oae.result||'').startsWith('Refer')?'#c62828':'#555'};">
+              ${di.newbornScreening.oae.result || '—'}
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:8px 10px;border:1px solid #ddd;font-weight:600;">👁️ ROP Screening<br><span style="font-size:10px;color:#666;font-weight:400;">Retinopathy of Prematurity</span></td>
+            <td style="padding:8px 10px;border:1px solid #ddd;font-size:11px;">
+              ${di.newbornScreening.rop.nextDate ? `Next screening: <b>${di.newbornScreening.rop.nextDate}</b>` : ''}<br>
+              ${di.newbornScreening.rop.referral ? `Ophthalmology: ${di.newbornScreening.rop.referral}` : ''}
+            </td>
+            <td style="padding:8px 10px;border:1px solid #ddd;font-weight:600;color:${(di.newbornScreening.rop.done||'').includes('No ROP')?'#2e7d32':(di.newbornScreening.rop.done||'').includes('detected')?'#c62828':'#555'};">
+              ${di.newbornScreening.rop.done || '—'}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <!-- DANGER SIGNS -->
+      <div style="background:#fff3f3;border:1.5px solid #e57373;border-radius:8px;padding:12px 14px;margin-bottom:12px;">
+        <div style="font-size:12px;font-weight:700;color:#c62828;margin-bottom:8px;">⚠️ DANGER SIGNS — BRING BABY TO HOSPITAL IMMEDIATELY IF:</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:3px 14px;font-size:11px;color:#333;line-height:1.6;">
+          <span>🔴 Not feeding / refuses breast / vomiting</span>
+          <span>🔴 Excessive crying or unusually quiet / lethargic</span>
+          <span>🔴 Fast breathing (&gt;60/min) or chest indrawing</span>
+          <span>🔴 Fever &gt;38°C (100.4°F) or feel cold / hypothermia</span>
+          <span>🔴 Jaundice spreading to palms and soles</span>
+          <span>🔴 Convulsions / fits / abnormal movements</span>
+          <span>🔴 Bleeding from any site</span>
+          <span>🔴 Skin pustules / blisters / widespread rash</span>
+          <span>🔴 Umbilical redness, pus, or foul odour</span>
+          <span>🔴 Not passing urine for more than 8 hours</span>
+        </div>
+        <div style="margin-top:8px;background:#ffebee;border-radius:5px;padding:7px 10px;font-size:11px;font-weight:700;color:#b71c1c;text-align:center;">
+          🏥 Visit Chandrawati Hospital OPD / Emergency immediately — do NOT wait for scheduled appointment
+        </div>
+      </div>
+    </div>` : ''}
 
     <div class="sig-grid">
       <div class="sig-box">Dr. ${p.consultant||'_______________'}<br>Consultant Physician<br>Reg. No.: _______________</div>
