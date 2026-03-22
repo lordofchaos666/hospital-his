@@ -293,7 +293,7 @@ html,body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text
 .dose-calc-item .dci-name{font-weight:600;color:var(--text);}
 .dose-calc-item .dci-class{font-size:10px;color:var(--text3);}
 .dose-result{background:var(--surface2);border-radius:7px;padding:10px;margin-top:8px;}
-.dose-indication{padding:6px 0;border-bottom:1px solid var(--border);font-size:12px;}
+.dose-indication{padding:6px 0;border-bottom:1px solid var(--border);font-size:12px;}.dose-use-row{cursor:pointer;border-radius:5px;transition:background 0.15s;}.dose-use-row:hover{background:rgba(86,211,100,0.08);}
 .dose-indication:last-child{border-bottom:none;}
 .dose-ind-name{color:var(--text2);margin-bottom:2px;}
 .dose-ind-val{font-family:'JetBrains Mono',monospace;color:var(--accent);font-size:11px;}
@@ -719,29 +719,49 @@ html,body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text
 
         <!-- ROP -->
         <div style="background:rgba(188,140,255,0.07);border:1px solid rgba(188,140,255,0.3);border-radius:9px;padding:13px 15px;margin-bottom:10px;">
-          <div style="font-size:12px;font-weight:700;color:#bc8cff;margin-bottom:8px;">👁️ ROP Screening (Retinopathy of Prematurity)</div>
-          <div style="font-size:11px;color:var(--text2);margin-bottom:8px;">Indicated if: gestational age &lt;32 weeks OR birth weight &lt;1500g (or &lt;2000g with risk factors)</div>
-          <div class="form-grid cols3">
-            <div class="form-group"><label class="form-label">1st Screening Done</label>
-              <select class="form-select" id="dm_rop_done">
-                <option value="">— Select —</option>
-                <option value="Done — No ROP">✅ Done — No ROP</option>
-                <option value="Done — ROP detected">⚠️ Done — ROP detected</option>
-                <option value="Not applicable">Not applicable</option>
-                <option value="Pending">Pending</option>
-              </select>
+          <div style="font-size:12px;font-weight:700;color:#bc8cff;margin-bottom:6px;">👁️ ROP Screening (Retinopathy of Prematurity)</div>
+
+          <!-- Oxygen therapy field — drives ROP eligibility -->
+          <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:8px;">
+            <div style="font-size:11px;font-weight:600;color:var(--text);">Supplemental Oxygen given during admission?</div>
+            <select class="form-select" id="dm_oxygen_given" style="width:120px;font-size:12px;" onchange="ropUpdateVisibility()">
+              <option value="">— Select —</option>
+              <option value="Yes">Yes</option>
+              <option value="No">No</option>
+            </select>
+          </div>
+
+          <!-- Criteria badge — auto-computed -->
+          <div id="dm_rop_criteria_msg" style="font-size:11px;border-radius:5px;padding:5px 10px;margin-bottom:8px;display:none;"></div>
+
+          <!-- ROP fields — shown only when indicated -->
+          <div id="dm_rop_fields" style="display:none;">
+            <div class="form-grid cols3">
+              <div class="form-group"><label class="form-label">1st Screening Done</label>
+                <select class="form-select" id="dm_rop_done">
+                  <option value="">— Select —</option>
+                  <option value="Done — No ROP">✅ Done — No ROP</option>
+                  <option value="Done — ROP detected">⚠️ Done — ROP detected</option>
+                  <option value="Pending">Pending</option>
+                </select>
+              </div>
+              <div class="form-group"><label class="form-label">Next ROP Screening</label>
+                <input class="form-input" type="date" id="dm_rop_next">
+              </div>
+              <div class="form-group"><label class="form-label">Ophthalmology Referral</label>
+                <select class="form-select" id="dm_rop_refer">
+                  <option value="">— Select —</option>
+                  <option value="Not required">Not required</option>
+                  <option value="Referred">Referred</option>
+                  <option value="Appointment given">Appointment given</option>
+                </select>
+              </div>
             </div>
-            <div class="form-group"><label class="form-label">Next ROP Screening</label>
-              <input class="form-input" type="date" id="dm_rop_next">
-            </div>
-            <div class="form-group"><label class="form-label">Ophthalmology Referral</label>
-              <select class="form-select" id="dm_rop_refer">
-                <option value="">— Select —</option>
-                <option value="Not required">Not required</option>
-                <option value="Referred">Referred</option>
-                <option value="Appointment given">Appointment given</option>
-              </select>
-            </div>
+          </div>
+
+          <!-- Not indicated message -->
+          <div id="dm_rop_not_indicated" style="display:none;font-size:11px;color:#56d364;padding:6px 10px;background:rgba(86,211,100,0.07);border-radius:5px;">
+            ✅ ROP screening not required — birth weight ≥2000 g and no supplemental oxygen given.
           </div>
         </div>
 
@@ -2621,6 +2641,10 @@ function openDischargeModal(id) {
       ['dm_cchd_rh','dm_cchd_rf'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
       ['dm_cchd_result','dm_oae_done','dm_oae_result','dm_bera','dm_rop_done','dm_rop_refer'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
       const ropNext = document.getElementById('dm_rop_next'); if(ropNext) ropNext.value='';
+      // Reset oxygen field
+      const oxyEl = document.getElementById('dm_oxygen_given'); if(oxyEl) oxyEl.value='';
+      // Evaluate ROP criteria based on patient weight (birth weight for NICU)
+      ropUpdateVisibility(p.weight);
     }
   }
 
@@ -2652,6 +2676,64 @@ function addDischargeMedRow(drugName, dose, route, freq, duration) {
   `;
   document.getElementById('dmMedsContainer').appendChild(row);
 }
+
+// ── ROP CRITERIA EVALUATOR ─────────────────────────────────────────────────────
+function ropUpdateVisibility(birthWeightKg) {
+  // birthWeightKg: from patient record (may be string like "1.5" or number)
+  // If not passed (called from onchange), read from last known discharge patient
+  const bwStr = birthWeightKg !== undefined ? birthWeightKg
+    : (() => {
+        const pid = dischargeTargetId;
+        const pt = pid ? getPatient(pid) : null;
+        return pt ? pt.weight : '';
+      })();
+
+  const bwKg  = parseFloat(bwStr) || 0;
+  const bwG   = bwKg * 1000; // convert kg → grams
+  const oxyEl = document.getElementById('dm_oxygen_given');
+  const oxyVal = oxyEl ? oxyEl.value : '';
+
+  const msgEl   = document.getElementById('dm_rop_criteria_msg');
+  const fieldsEl = document.getElementById('dm_rop_fields');
+  const noROPEl  = document.getElementById('dm_rop_not_indicated');
+
+  if(!msgEl || !fieldsEl || !noROPEl) return;
+
+  // ROP is indicated if: BW < 2000g OR oxygen given = "Yes"
+  const lowBW     = bwG > 0 && bwG < 2000;
+  const oxyGiven  = oxyVal === 'Yes';
+  const indicated = lowBW || oxyGiven;
+
+  // Build criteria message
+  const reasons = [];
+  if(lowBW)    reasons.push(`Birth weight ${bwG.toFixed(0)} g <b>&lt;2000 g</b>`);
+  if(oxyGiven) reasons.push('Supplemental <b>oxygen given</b>');
+
+  msgEl.style.display = 'block';
+
+  if(indicated) {
+    const reasonText = reasons.length ? ' — ' + reasons.join(', ') : '';
+    msgEl.style.background  = 'rgba(188,140,255,0.12)';
+    msgEl.style.color       = '#bc8cff';
+    msgEl.innerHTML = '⚠️ <b>ROP Screening INDICATED</b>' + reasonText + '. Schedule first ROP exam at 4–6 weeks postnatal age or 31–33 weeks postmenstrual age (whichever is later).';
+    fieldsEl.style.display  = 'block';
+    noROPEl.style.display   = 'none';
+  } else if(oxyVal === 'No') {
+    // Only show "not indicated" when oxygen is explicitly set to No
+    msgEl.style.display     = 'none';
+    fieldsEl.style.display  = 'none';
+    noROPEl.style.display   = 'block';
+    // Auto-set done to Not applicable
+    const doneEl = document.getElementById('dm_rop_done');
+    if(doneEl && !doneEl.value) doneEl.value = '';
+  } else {
+    // Oxygen not yet selected — just hide both
+    msgEl.style.display     = 'none';
+    fieldsEl.style.display  = 'none';
+    noROPEl.style.display   = 'none';
+  }
+}
+// ─────────────────────────────────────────────────────────────────────────────
 
 function confirmDischarge() {
   if(!dischargeTargetId) return;
@@ -2691,6 +2773,8 @@ function confirmDischarge() {
       bera: document.getElementById('dm_bera')?.value || ''
     },
     rop: {
+      oxygenGiven: document.getElementById('dm_oxygen_given')?.value || '',
+      indicated: (document.getElementById('dm_rop_fields')?.style.display !== 'none'),
       done: document.getElementById('dm_rop_done')?.value || '',
       nextDate: document.getElementById('dm_rop_next')?.value || '',
       referral: document.getElementById('dm_rop_refer')?.value || ''
@@ -3118,17 +3202,25 @@ function calcDoseForWeight(doseStr, wt) {
 function renderDoseResults(drug, wt, targetDrugInput, targetDoseInput) {
   const calcEl = targetDrugInput === 'doseCalcSearch' ? 'doseCalcResult' : 'medCalcResult';
   if(!drug) { document.getElementById(calcEl).innerHTML = ''; return; }
-  const html = `<div style="margin-bottom:6px;font-size:12px;font-weight:600;color:var(--text);">${drug.name} <span style="font-size:10px;color:var(--text3);">${drug.class}</span></div>
-    ${drug.doses.map(d => {
-      if(!d.dose) return '';
-      const calc = calcDoseForWeight(d.dose, wt);
-      return `<div class="dose-indication" onclick="useDose('${drug.name.replace(/'/g,"\\'")}','${d.dose.replace(/'/g,"\\'")}','${calc.replace(/'/g,"\\'")}','${targetDrugInput}')">
-        <div class="dose-ind-name">${d.ind}</div>
-        <div class="dose-ind-val">${d.dose}</div>
-        ${calc ? `<div class="dose-ind-calc" style="font-weight:600;">${calc} <span style="font-size:9px;color:var(--accent);margin-left:8px;">← click to use</span></div>` : ''}
-      </div>`;
-    }).join('')}`;
-  document.getElementById(calcEl).innerHTML = html;
+
+  // Store drug data in a temporary registry keyed by element id
+  // to avoid ALL onclick string-escaping bugs
+  window._doseRegistry = window._doseRegistry || {};
+
+  const rows = drug.doses.map((d,i) => {
+    if(!d.dose) return '';
+    const calc = calcDoseForWeight(d.dose, wt);
+    const key  = `${targetDrugInput}_${Date.now()}_${i}`;
+    window._doseRegistry[key] = { drugName: drug.name, doseStr: d.dose, calcResult: calc, sourceInput: targetDrugInput };
+    return `<div class="dose-indication dose-use-row" data-dose-key="${key}" style="cursor:pointer;" title="Click to use this dose">
+      <div class="dose-ind-name">${d.ind}</div>
+      <div class="dose-ind-val">${d.dose}</div>
+      ${calc ? `<div class="dose-ind-calc" style="font-weight:600;">${calc} <span style="font-size:9px;color:var(--accent);margin-left:8px;">← click to use</span></div>` : ''}
+    </div>`;
+  }).join('');
+
+  document.getElementById(calcEl).innerHTML =
+    `<div style="margin-bottom:6px;font-size:12px;font-weight:600;color:var(--text);">${drug.name} <span style="font-size:10px;color:var(--text3);">${drug.class}</span></div>${rows}`;
 }
 
 function doseCalcSearch(q) {
@@ -3267,8 +3359,21 @@ function useDose(drugName, doseStr, calcResult, sourceInput) {
   }
 }
 
-// Close dropdowns when clicking outside
+// ── DELEGATED dose click handler (avoids all onclick string-escaping bugs) ────
 document.addEventListener('click', function(e) {
+  const row = e.target.closest('.dose-use-row');
+  if(row) {
+    const key  = row.dataset.doseKey;
+    const data = window._doseRegistry && window._doseRegistry[key];
+    if(data) {
+      useDose(data.drugName, data.doseStr, data.calcResult, data.sourceInput);
+      // Visual feedback
+      row.style.background = 'rgba(86,211,100,0.15)';
+      setTimeout(() => row.style.background = '', 600);
+    }
+    return;
+  }
+  // Close dropdowns when clicking outside
   if(!e.target.closest('.dose-calc-search')) {
     document.querySelectorAll('.dose-calc-results').forEach(d => d.style.display='none');
   }
@@ -3479,11 +3584,12 @@ function printDischargeCard(id) {
           <tr>
             <td style="padding:8px 10px;border:1px solid #ddd;font-weight:600;">👁️ ROP Screening<br><span style="font-size:10px;color:#666;font-weight:400;">Retinopathy of Prematurity</span></td>
             <td style="padding:8px 10px;border:1px solid #ddd;font-size:11px;">
-              ${di.newbornScreening.rop.nextDate ? `Next screening: <b>${di.newbornScreening.rop.nextDate}</b>` : ''}<br>
-              ${di.newbornScreening.rop.referral ? `Ophthalmology: ${di.newbornScreening.rop.referral}` : ''}
+              ${di.newbornScreening.rop.oxygenGiven ? `O₂ therapy: <b>${di.newbornScreening.rop.oxygenGiven}</b>` : ''}<br>
+              ${di.newbornScreening.rop.indicated ? (di.newbornScreening.rop.nextDate ? `Next screening: <b>${di.newbornScreening.rop.nextDate}</b>` : '') : '<span style="color:#388e3c;">Not indicated</span>'}<br>
+              ${di.newbornScreening.rop.indicated && di.newbornScreening.rop.referral ? `Ophthalmology: ${di.newbornScreening.rop.referral}` : ''}
             </td>
-            <td style="padding:8px 10px;border:1px solid #ddd;font-weight:600;color:${(di.newbornScreening.rop.done||'').includes('No ROP')?'#2e7d32':(di.newbornScreening.rop.done||'').includes('detected')?'#c62828':'#555'};">
-              ${di.newbornScreening.rop.done || '—'}
+            <td style="padding:8px 10px;border:1px solid #ddd;font-weight:600;color:${!di.newbornScreening.rop.indicated?'#388e3c':(di.newbornScreening.rop.done||'').includes('No ROP')?'#2e7d32':(di.newbornScreening.rop.done||'').includes('detected')?'#c62828':'#555'};">
+              ${!di.newbornScreening.rop.indicated ? '✅ Not required' : (di.newbornScreening.rop.done || '—')}
             </td>
           </tr>
         </tbody>
