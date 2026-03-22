@@ -3165,16 +3165,105 @@ function selectDoseCalcDrug(drugName, searchInputId) {
   renderDoseResults(drug, wt, searchInputId, searchInputId);
 }
 
+// ── DOSE STRING PARSERS ───────────────────────────────────────────────────────
+function parseFreqFromDose(doseStr) {
+  // Textual single-dose indicators (check before interval parsing)
+  if(s.includes('stat') || s.includes('single dose')) return 'Stat';
+  const s = doseStr.toLowerCase();
+  // Explicit interval notation (÷ q8h, ÷ q6–8h — pick shorter interval)
+  const divMatch = s.match(/÷\s*q(\d+)(?:[–\-](\d+))?h/);
+  if(divMatch) {
+    const hrs = parseInt(divMatch[1], 10);
+    if(hrs <= 4)  return 'q4h';
+    if(hrs <= 6)  return 'q6h';
+    if(hrs <= 8)  return 'q8h';
+    if(hrs <= 12) return 'q12h';
+    return 'q24h';
+  }
+  // Standalone interval (q6h, q8h, q12h without ÷)
+  const qMatch = s.match(/\bq(\d+)(?:[\u2013\-]\d+)?h\b/);
+  if(qMatch) {
+    const hrs = parseInt(qMatch[1], 10);
+    if(hrs <= 4)  return 'q4h';
+    if(hrs <= 6)  return 'q6h';
+    if(hrs <= 8)  return 'q8h';
+    if(hrs <= 12) return 'q12h';
+    return 'q24h';
+  }
+  // Textual frequency
+  if(s.includes('4 times') || s.includes('qid') || s.includes('four times')) return 'QID';
+  if(s.includes('3 times') || s.includes('tds') || s.includes('tid') || s.includes('three times')) return 'TDS';
+  if(s.includes('twice') || s.includes('bd') || s.includes('bid') || s.includes('2 times')) return 'BD';
+  if(s.includes('once') || s.includes('od') || s.includes('once daily') || s.includes('once a day')) return 'OD';
+  if(s.includes('prn') || s.includes('as needed')) return 'PRN';
+  // Infer from dose frequency divided hint
+  if(s.includes('÷ q') && s.includes('h')) return 'TDS'; // generic fallback
+  // Fallback: once daily for single totals, TDS for divided doses
+  return s.includes('÷') || s.includes('divided') ? 'TDS' : 'OD';
+}
+
+function parseRouteFromDose(doseStr, drugRoutes) {
+  const s = doseStr.toLowerCase();
+  if(s.includes('(iv)') || s.includes(' iv ') || s.match(/iv/))      return 'IV';
+  if(s.includes('(im)') || s.match(/im/))                             return 'IM';
+  if(s.includes('(po)') || s.match(/po/) || s.includes('oral'))       return 'PO';
+  if(s.includes('inh') || s.includes('nebul') || s.includes('inhale'))    return 'Inhaled';
+  if(s.includes('(sc)') || s.match(/sc/))                             return 'SC';
+  if(s.includes('topical'))                                                return 'Topical';
+  if(s.includes('intranas') || s.includes('nasal'))                       return 'Intranasal';
+  // Fall back to first route in drug definition
+  if(drugRoutes && drugRoutes.length > 0) return drugRoutes[0];
+  return 'PO';
+}
+
+function parseDurationFromDose(doseStr) {
+  // e.g. "× 10 days", "× 7–10 days", "× 2 weeks", "× 5 days"
+  const dayMatch = doseStr.match(/[×x]\s*(\d+)(?:[–\-]\d+)?\s*days?/i);
+  if(dayMatch) return dayMatch[1] + ' days';
+  const wkMatch  = doseStr.match(/[×x]\s*(\d+)(?:[–\-]\d+)?\s*weeks?/i);
+  if(wkMatch)  return wkMatch[1] + ' weeks';
+  return '';
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 function useDose(drugName, doseStr, calcResult, sourceInput) {
+  const drug     = DRUGS.find(d => d.name === drugName);
+  const routes   = drug ? drug.routes : ['PO'];
+  const freq     = parseFreqFromDose(doseStr);
+  const route    = parseRouteFromDose(doseStr, routes);
+  const duration = parseDurationFromDose(doseStr);
+  const finalDose = calcResult ? calcResult.replace(/^=\s*/,'').trim() : doseStr.split('÷')[0].trim();
+
   if(sourceInput === 'doseCalcSearch') {
-    // Add to discharge meds
-    const finalDose = calcResult ? calcResult.replace('=','').trim() : doseStr.split('÷')[0].trim();
-    addDischargeMedRow(drugName, finalDose, 'PO', 'OD', '5 days');
+    // ── Discharge medication row ─────────────────────────────
+    addDischargeMedRow(drugName, finalDose, route, freq, duration);
+
   } else if(sourceInput === 'medCalcSearch') {
-    // Fill in medication order form
-    document.getElementById('mm_drug').value = drugName;
-    const finalDose = calcResult ? calcResult.replace('=','').trim() : doseStr.split(' ')[0];
-    document.getElementById('mm_dose').value = finalDose;
+    // ── Medication order modal ───────────────────────────────
+    document.getElementById('mm_drug').value  = drugName;
+    document.getElementById('mm_dose').value  = finalDose;
+
+    // Auto-select route
+    const routeEl = document.getElementById('mm_route');
+    if(routeEl) {
+      const opts = Array.from(routeEl.options).map(o=>o.value);
+      const match = opts.find(o=>o.toLowerCase()===route.toLowerCase()) || opts[0];
+      routeEl.value = match;
+    }
+
+    // Auto-select frequency
+    const freqEl = document.getElementById('mm_freq');
+    if(freqEl) {
+      const opts = Array.from(freqEl.options).map(o=>o.value);
+      const match = opts.find(o=>o.toLowerCase()===freq.toLowerCase()) ||
+                    opts.find(o=>o.toLowerCase().replace('h','')===freq.toLowerCase().replace('h','')) ||
+                    opts[0];
+      freqEl.value = match;
+    }
+
+    // Scroll to the filled fields to confirm to the user
+    const doseEl = document.getElementById('mm_dose');
+    if(doseEl) doseEl.scrollIntoView({behavior:'smooth', block:'nearest'});
   }
 }
 
