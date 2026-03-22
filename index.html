@@ -3320,9 +3320,9 @@ function selectDoseCalcDrug(drugName, searchInputId) {
 
 // ── DOSE STRING PARSERS ───────────────────────────────────────────────────────
 function parseFreqFromDose(doseStr) {
+  const s = doseStr.toLowerCase();
   // Textual single-dose indicators (check before interval parsing)
   if(s.includes('stat') || s.includes('single dose')) return 'Stat';
-  const s = doseStr.toLowerCase();
   // Explicit interval notation (÷ q8h, ÷ q6–8h — pick shorter interval)
   const divMatch = s.match(/÷\s*q(\d+)(?:[–\-](\d+))?h/);
   if(divMatch) {
