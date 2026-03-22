@@ -1077,6 +1077,7 @@ html,body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text
             </div>
           </div>
           <div id="medCalcResult"></div>
+          <div id="medCalcApplied"></div>
         </div>
       </div>
       <!-- IV Fluid fields -->
@@ -3027,6 +3028,7 @@ function openMedModal(id) {
   document.getElementById('medCalcWt').value = p ? p.weight||'' : '';
   document.getElementById('medCalcSearch').value = '';
   document.getElementById('medCalcResult').innerHTML = '';
+  document.getElementById('medCalcApplied').innerHTML = '';
   document.getElementById('medCalcDropdown').style.display = 'none';
   // Reset O2 fields
   document.getElementById('mm_o2params').value = '';
@@ -3244,22 +3246,11 @@ function renderDoseResults(drug, wt, targetDrugInput, targetDoseInput) {
 // Called by onclick="applyDoseRow(i)" — receives only an integer
 function applyDoseRow(i) {
   const state = window._calcState;
-  if(!state || !state.drug) return;
-  const d    = state.drug.doses[i];
+  if(!state || !state.drug) { showToast('⚠️ Select a drug first'); return; }
+  const d = state.drug.doses[i];
   if(!d) return;
   const calc = calcDoseForWeight(d.dose, state.wt);
   useDose(state.drug.name, d.dose, calc, state.source);
-
-  // Flash the row green
-  const calcElId = state.source === 'doseCalcSearch' ? 'doseCalcResult' : 'medCalcResult';
-  const calcEl   = document.getElementById(calcElId);
-  if(calcEl) {
-    const rows = calcEl.querySelectorAll('.dose-indication');
-    if(rows[i]) {
-      rows[i].style.background = 'rgba(86,211,100,0.22)';
-      setTimeout(() => rows[i].style.background = '', 800);
-    }
-  }
 }
 
 function doseCalcSearch(q) {
@@ -3403,45 +3394,41 @@ function useDose(drugName, doseStr, calcResult, sourceInput) {
 
   } else if(sourceInput === 'medCalcSearch') {
     // ── Medication order modal ───────────────────────────────
-    const drugEl = document.getElementById('mm_drug');
-    const doseEl = document.getElementById('mm_dose');
-    if(drugEl) drugEl.value = drugName;
-    if(doseEl) doseEl.value = finalDose;
-
-    // Auto-fill duration
-    const durEl = document.getElementById('mm_duration');
-    if(durEl && duration) durEl.value = duration;
+    document.getElementById('mm_drug').value = drugName;
+    document.getElementById('mm_dose').value = finalDose;
+    if(duration) document.getElementById('mm_duration').value = duration;
 
     // Auto-select route
     const routeEl = document.getElementById('mm_route');
     if(routeEl) {
-      const opts = Array.from(routeEl.options).map(o=>o.value);
-      const match = opts.find(o=>o.toLowerCase()===route.toLowerCase()) || opts[0];
-      routeEl.value = match;
+      const rOpts = Array.from(routeEl.options).map(o => o.value);
+      routeEl.value = rOpts.find(o => o.toLowerCase() === route.toLowerCase()) || rOpts[0];
     }
 
     // Auto-select frequency
     const freqEl = document.getElementById('mm_freq');
     if(freqEl) {
-      const opts = Array.from(freqEl.options).map(o=>o.value);
-      const match = opts.find(o=>o.toLowerCase()===freq.toLowerCase()) ||
-                    opts.find(o=>o.toLowerCase().replace('h','')===freq.toLowerCase().replace('h','')) ||
-                    opts[0];
-      freqEl.value = match;
+      const fOpts = Array.from(freqEl.options).map(o => o.value);
+      freqEl.value = fOpts.find(o => o.toLowerCase() === freq.toLowerCase()) ||
+                     fOpts.find(o => o.replace(/h$/i,'') === freq.replace(/h$/i,'')) ||
+                     fOpts[0];
     }
 
-    // Visual confirmation — flash the filled fields green
-    [drugEl, doseEl, durEl].forEach(el => {
-      if(!el) return;
-      const orig = el.style.borderColor;
-      el.style.borderColor = '#56d364';
-      el.style.transition   = 'border-color 0.4s';
-      setTimeout(() => { el.style.borderColor = orig; el.style.transition = ''; }, 1200);
-    });
+    // ── Scroll modal to TOP so filled fields are visible ────
+    const modalEl = document.querySelector('#medModal .modal');
+    if(modalEl) modalEl.scrollTop = 0;
 
-    // Scroll to top of modal so user can see the filled fields
-    const modalBody = document.querySelector('#medModal .modal-body');
-    if(modalBody) modalBody.scrollTop = 0;
+    // ── Show applied-banner inside the calc area ─────────────
+    const banner = document.getElementById('medCalcApplied');
+    if(banner) {
+      banner.innerHTML = `<div style="background:rgba(86,211,100,0.15);border:1px solid #56d364;border-radius:7px;
+        padding:8px 12px;font-size:12px;color:#56d364;margin-top:8px;">
+        ✅ <strong>Applied:</strong> ${drugName} — ${finalDose} · ${routeEl ? routeEl.value : route} · ${freqEl ? freqEl.value : freq}${duration ? ' · ' + duration : ''}
+        <span style="font-size:10px;opacity:0.7;margin-left:6px;">(scroll up to see filled fields)</span>
+      </div>`;
+    }
+
+    showToast('✅ ' + drugName + ' — ' + finalDose + ' applied to form');
   }
 }
 
