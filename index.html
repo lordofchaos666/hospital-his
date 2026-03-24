@@ -3082,6 +3082,7 @@ function openMedModal(id) {
   document.getElementById('mcDrop').style.display = 'none';
   window._mcDrug  = null;
   window._mcHits  = [];
+  window._calcState = { drug: null, wt: 0, source: '' };
   // Reset O2 fields
   document.getElementById('mm_o2params').value = '';
   document.getElementById('mm_o2spo2').value = '';
