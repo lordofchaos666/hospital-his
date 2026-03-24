@@ -1800,17 +1800,28 @@ function loadData() {
       const saved = localStorage.getItem('cwh_session');
       if(saved) {
         const u = JSON.parse(saved);
-        if(u && u.id && u.role) {
+        // Validate saved session has required fields AND matches a known account
+        const accounts = getAccounts();
+        const stillValid = u && u.id && u.role && accounts.find(a => a.id === u.id);
+        if(stillValid) {
           currentUser = u;
-          currentRole = u.role;
+          // Admin acts as doctor for clinical functions
+          currentRole = u.role === 'admin' ? 'doctor' : u.role;
           document.getElementById('loginScreen').style.display = 'none';
-          document.getElementById('mainApp').style.display = '';
-          document.getElementById('currentUserBadge').textContent = u.name + ' · ' + u.role.charAt(0).toUpperCase() + u.role.slice(1);
+          document.getElementById('mainApp').style.display = 'block';
+          document.getElementById('currentUserBadge').textContent =
+            (u.name || u.id) + ' · ' + u.role.charAt(0).toUpperCase() + u.role.slice(1);
           if(u.role === 'admin') document.getElementById('adminNavBtn').style.display = '';
           updateRoleUI();
+        } else {
+          // Stale or invalid session — clear it and show login
+          localStorage.removeItem('cwh_session');
         }
       }
-    } catch(e) {}
+    } catch(e) {
+      // Any parse error — clear bad data
+      try { localStorage.removeItem('cwh_session'); } catch(_) {}
+    }
   }
 
   // 2. Connect Firebase — use hash config (new device) or existing saved config
