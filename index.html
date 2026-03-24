@@ -2582,12 +2582,12 @@ function admitPatient() {
   if(!diagnosis) { alert('Provisional diagnosis is required'); return; }
   if(diagnosis.trim().length < 3) { alert('Please enter a more specific diagnosis (min 3 characters)'); return; }
 
-  const hr = parseInt(document.getElementById('a_hr', 10).value, 10);
-  const rr = parseInt(document.getElementById('a_rr', 10).value, 10);
-  const spo2 = parseInt(document.getElementById('a_spo2', 10).value, 10);
+  const hr = parseInt(document.getElementById('a_hr').value, 10);
+  const rr = parseInt(document.getElementById('a_rr').value, 10);
+  const spo2 = parseInt(document.getElementById('a_spo2').value, 10);
   const temp = parseFloat(document.getElementById('a_temp').value);
-  const bpSys = parseInt(document.getElementById('a_bpS', 10).value, 10);
-  const bpDia = parseInt(document.getElementById('a_bpD', 10).value, 10);
+  const bpSys = parseInt(document.getElementById('a_bpS').value, 10);
+  const bpDia = parseInt(document.getElementById('a_bpD').value, 10);
 
   const vitals = {};
   if(!isNaN(hr) && hr > 0) vitals.hr = hr;
@@ -2875,21 +2875,21 @@ function saveVitals() {
   if(!p) return;
   if(!p.vitals) p.vitals = {};         // Guard: Firebase drops empty objects on sync
   if(!p.vitalsHistory) p.vitalsHistory = [];
-  const hr = parseInt(document.getElementById('vm_hr', 10).value, 10);
-  const rr = parseInt(document.getElementById('vm_rr', 10).value, 10);
-  const spo2 = parseInt(document.getElementById('vm_spo2', 10).value, 10);
+  const hr = parseInt(document.getElementById('vm_hr').value, 10);
+  const rr = parseInt(document.getElementById('vm_rr').value, 10);
+  const spo2 = parseInt(document.getElementById('vm_spo2').value, 10);
   const temp = parseFloat(document.getElementById('vm_temp').value);
-  const bpSys = parseInt(document.getElementById('vm_bpS', 10).value, 10);
-  const bpDia = parseInt(document.getElementById('vm_bpD', 10).value, 10);
-  const rbs = parseInt(document.getElementById('vm_rbs', 10).value, 10);
+  const bpSys = parseInt(document.getElementById('vm_bpS').value, 10);
+  const bpDia = parseInt(document.getElementById('vm_bpD').value, 10);
+  const rbs = parseInt(document.getElementById('vm_rbs').value, 10);
   const wt = parseFloat(document.getElementById('vm_wt').value);
-  const gcs = parseInt(document.getElementById('vm_gcs', 10).value, 10);
-  const iv_in = parseInt(document.getElementById('vm_iv_in', 10).value, 10);
-  const oral_in = parseInt(document.getElementById('vm_oral_in', 10).value, 10);
-  const urine = parseInt(document.getElementById('vm_urine', 10).value, 10);
-  const stool = parseInt(document.getElementById('vm_stool', 10).value, 10);
-  const drain = parseInt(document.getElementById('vm_drain', 10).value, 10);
-  const other_out = parseInt(document.getElementById('vm_other_out', 10).value, 10);
+  const gcs = parseInt(document.getElementById('vm_gcs').value, 10);
+  const iv_in = parseInt(document.getElementById('vm_iv_in').value, 10);
+  const oral_in = parseInt(document.getElementById('vm_oral_in').value, 10);
+  const urine = parseInt(document.getElementById('vm_urine').value, 10);
+  const stool = parseInt(document.getElementById('vm_stool').value, 10);
+  const drain = parseInt(document.getElementById('vm_drain').value, 10);
+  const other_out = parseInt(document.getElementById('vm_other_out').value, 10);
   const nurse = document.getElementById('vm_nurse').value.trim();
 
   const entry = { timestamp: window._vitalsOpenedAt || new Date().toISOString(), nurse }; // use open-time timestamp
