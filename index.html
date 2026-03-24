@@ -355,6 +355,11 @@ html,body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text
     </div>
     <button onclick="doLogin()" style="width:100%;background:#238636;border:none;border-radius:8px;padding:12px;color:#fff;font-size:14px;font-weight:600;cursor:pointer;">Sign In</button>
     <div style="text-align:center;margin-top:16px;font-size:11px;color:#484f58;">Secure access · Chandrawati Hospital © 2025</div>
+    <div style="text-align:center;margin-top:10px;">
+      <button onclick="clearAndReload()" style="background:none;border:none;color:#484f58;font-size:10px;cursor:pointer;text-decoration:underline;padding:0;">
+        Not working? Tap here to reset
+      </button>
+    </div>
   </div>
 </div>
 
@@ -1794,34 +1799,34 @@ function loadData() {
     if(!p.dischargeInfo)   p.dischargeInfo = null;
   });
 
-  // 1b. Restore session if page was refreshed
-  if(!currentUser) {
-    try {
+  // 1b. Restore session if page was refreshed — fully guarded
+  try {
+    if(!currentUser) {
       const saved = localStorage.getItem('cwh_session');
       if(saved) {
         const u = JSON.parse(saved);
-        // Validate saved session has required fields AND matches a known account
         const accounts = getAccounts();
-        const stillValid = u && u.id && u.role && accounts.find(a => a.id === u.id);
-        if(stillValid) {
+        const valid = u && u.id && u.role && Array.isArray(accounts) &&
+                      accounts.some(function(a){ return a.id === u.id; });
+        if(valid) {
           currentUser = u;
-          // Admin acts as doctor for clinical functions
-          currentRole = u.role === 'admin' ? 'doctor' : u.role;
+          currentRole = (u.role === 'admin') ? 'doctor' : u.role;
           document.getElementById('loginScreen').style.display = 'none';
           document.getElementById('mainApp').style.display = 'block';
-          document.getElementById('currentUserBadge').textContent =
-            (u.name || u.id) + ' · ' + u.role.charAt(0).toUpperCase() + u.role.slice(1);
-          if(u.role === 'admin') document.getElementById('adminNavBtn').style.display = '';
-          updateRoleUI();
+          const badge = document.getElementById('currentUserBadge');
+          if(badge) badge.textContent = (u.name||u.id) + ' · ' +
+            u.role.charAt(0).toUpperCase() + u.role.slice(1);
+          const adminBtn = document.getElementById('adminNavBtn');
+          if(adminBtn && u.role === 'admin') adminBtn.style.display = '';
+          try { updateRoleUI(); } catch(e2) {}
         } else {
-          // Stale or invalid session — clear it and show login
           localStorage.removeItem('cwh_session');
         }
       }
-    } catch(e) {
-      // Any parse error — clear bad data
-      try { localStorage.removeItem('cwh_session'); } catch(_) {}
     }
+  } catch(e) {
+    // Session restore failed — clear and let user log in manually
+    try { localStorage.removeItem('cwh_session'); } catch(_) {}
   }
 
   // 2. Connect Firebase — use hash config (new device) or existing saved config
@@ -4399,6 +4404,33 @@ if(!localStorage.getItem('cwh_accounts_v1')) {
 
 let currentUser = null; // { id, name, role }
 let currentRole = 'doctor';
+
+// Nuclear reset — clears ALL localStorage and reloads fresh
+function clearAndReload() {
+  try {
+    localStorage.removeItem('cwh_session');
+    localStorage.removeItem('cwh_accounts_v1');
+    localStorage.removeItem('cwh_patients_v2');
+    localStorage.removeItem('cwh_fb_config_v1');
+  } catch(e) {}
+  location.reload(true);
+}
+
+// Startup self-test — if doLogin can't run, show error
+(function startupCheck() {
+  try {
+    const loginBtn = document.querySelector('button[onclick="doLogin()"]');
+    if(!loginBtn) return;
+    const loginId = document.getElementById('loginId');
+    const loginPw = document.getElementById('loginPw');
+    const errEl   = document.getElementById('loginError');
+    if(!loginId || !loginPw || !errEl) {
+      console.error('CWH: Login elements missing');
+    }
+  } catch(e) {
+    console.error('CWH startup check failed:', e);
+  }
+})();
 
 function doLogin() {
   const id = document.getElementById('loginId').value.trim().toLowerCase();
