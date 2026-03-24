@@ -796,7 +796,7 @@ html,body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text
           </div>
           <div style="display:flex;align-items:center;gap:6px;">
             <span style="font-size:11px;color:var(--text2);">Weight:</span>
-            <input class="form-input" type="number" id="doseCalcWt" style="width:70px;" placeholder="kg" step="0.1" oninput="const s=window._calcState;if(s&&s.drug&&s.source==='doseCalcSearch'){renderDoseResults(s.drug,parseFloat(this.value)||0,'doseCalcSearch','doseCalcSearch');}">
+            <input class="form-input" type="number" id="doseCalcWt" style="width:70px;" placeholder="kg" step="0.1" oninput="if(window._calcState&&window._calcState.drug&&window._calcState.source==='doseCalcSearch'){renderDoseResults(window._calcState.drug,parseFloat(this.value)||0,'doseCalcSearch','doseCalcSearch');}">
             <span style="font-size:11px;color:var(--text2);">kg</span>
           </div>
         </div>
@@ -2542,12 +2542,12 @@ function admitPatient() {
   if(!name) { alert('Patient name is required'); return; }
   if(!diagnosis) { alert('Provisional diagnosis is required'); return; }
 
-  const hr = parseInt(document.getElementById('a_hr').value, 10);
-  const rr = parseInt(document.getElementById('a_rr').value, 10);
-  const spo2 = parseInt(document.getElementById('a_spo2').value, 10);
+  const hr = parseInt(document.getElementById('a_hr', 10).value, 10);
+  const rr = parseInt(document.getElementById('a_rr', 10).value, 10);
+  const spo2 = parseInt(document.getElementById('a_spo2', 10).value, 10);
   const temp = parseFloat(document.getElementById('a_temp').value);
-  const bpSys = parseInt(document.getElementById('a_bpS').value, 10);
-  const bpDia = parseInt(document.getElementById('a_bpD').value, 10);
+  const bpSys = parseInt(document.getElementById('a_bpS', 10).value, 10);
+  const bpDia = parseInt(document.getElementById('a_bpD', 10).value, 10);
 
   const vitals = {};
   if(!isNaN(hr) && hr > 0) vitals.hr = hr;
@@ -2614,6 +2614,7 @@ function admitPatient() {
 // DISCHARGE PATIENT
 // ============================================================
 function openDischargeModal(id) {
+  if(currentRole === 'nurse') { alert('Only doctors can discharge patients.'); return; }
   dischargeTargetId = id;
   const p = getPatient(id);
   if(!p) return;
@@ -2834,21 +2835,21 @@ function saveVitals() {
   if(!p) return;
   if(!p.vitals) p.vitals = {};         // Guard: Firebase drops empty objects on sync
   if(!p.vitalsHistory) p.vitalsHistory = [];
-  const hr = parseInt(document.getElementById('vm_hr').value, 10);
-  const rr = parseInt(document.getElementById('vm_rr').value, 10);
-  const spo2 = parseInt(document.getElementById('vm_spo2').value, 10);
+  const hr = parseInt(document.getElementById('vm_hr', 10).value, 10);
+  const rr = parseInt(document.getElementById('vm_rr', 10).value, 10);
+  const spo2 = parseInt(document.getElementById('vm_spo2', 10).value, 10);
   const temp = parseFloat(document.getElementById('vm_temp').value);
-  const bpSys = parseInt(document.getElementById('vm_bpS').value, 10);
-  const bpDia = parseInt(document.getElementById('vm_bpD').value, 10);
-  const rbs = parseInt(document.getElementById('vm_rbs').value, 10);
+  const bpSys = parseInt(document.getElementById('vm_bpS', 10).value, 10);
+  const bpDia = parseInt(document.getElementById('vm_bpD', 10).value, 10);
+  const rbs = parseInt(document.getElementById('vm_rbs', 10).value, 10);
   const wt = parseFloat(document.getElementById('vm_wt').value);
-  const gcs = parseInt(document.getElementById('vm_gcs').value, 10);
-  const iv_in = parseInt(document.getElementById('vm_iv_in').value, 10);
-  const oral_in = parseInt(document.getElementById('vm_oral_in').value, 10);
-  const urine = parseInt(document.getElementById('vm_urine').value, 10);
-  const stool = parseInt(document.getElementById('vm_stool').value, 10);
-  const drain = parseInt(document.getElementById('vm_drain').value, 10);
-  const other_out = parseInt(document.getElementById('vm_other_out').value, 10);
+  const gcs = parseInt(document.getElementById('vm_gcs', 10).value, 10);
+  const iv_in = parseInt(document.getElementById('vm_iv_in', 10).value, 10);
+  const oral_in = parseInt(document.getElementById('vm_oral_in', 10).value, 10);
+  const urine = parseInt(document.getElementById('vm_urine', 10).value, 10);
+  const stool = parseInt(document.getElementById('vm_stool', 10).value, 10);
+  const drain = parseInt(document.getElementById('vm_drain', 10).value, 10);
+  const other_out = parseInt(document.getElementById('vm_other_out', 10).value, 10);
   const nurse = document.getElementById('vm_nurse').value.trim();
 
   const entry = { timestamp: window._vitalsOpenedAt || new Date().toISOString(), nurse }; // use open-time timestamp
@@ -3110,6 +3111,7 @@ function saveMedication() {
 }
 
 function medRemove(patientId, medId) {
+  if(currentRole === 'nurse') { alert('Only doctors can remove medication orders.'); return; }
   if(!confirm('Remove this medication order?')) return;
   const p = getPatient(patientId);
   if(!p || !p.medications) return;
@@ -3212,7 +3214,7 @@ function calcDoseForWeight(doseStr, wt) {
 window._calcState = { drug: null, wt: 0, source: '' };
 
 function renderDoseResults(drug, wt, targetDrugInput, targetDoseInput) {
-  const calcElId = targetDrugInput === 'doseCalcSearch' ? 'doseCalcResult' : 'medCalcResult';
+  const calcElId = 'doseCalcResult'; // sidebar discharge calc only
   const calcEl   = document.getElementById(calcElId);
   if(!calcEl) return;
   if(!drug)   { calcEl.innerHTML = ''; return; }
@@ -3248,8 +3250,14 @@ function applyDoseRow(i) {
   if(!state || !state.drug) { showToast('⚠️ Select a drug first'); return; }
   const d = state.drug.doses[i];
   if(!d) return;
-  const calc = calcDoseForWeight(d.dose, state.wt);
-  useDose(state.drug.name, d.dose, calc, state.source);
+  const calc     = calcDoseForWeight(d.dose, state.wt);
+  const finalDose = calc ? calc.replace(/^=\s*/,'').trim() : d.dose.split('÷')[0].trim();
+  const freq     = mcFreq(d.dose);
+  const route    = mcRoute(d.dose, state.drug.routes);
+  const dur      = mcDur(d.dose);
+  // Sidebar discharge calc adds a medication row
+  addDischargeMedRow(state.drug.name, finalDose, route, freq, dur);
+  showToast('✅ ' + state.drug.name + ' — ' + finalDose + ' added to discharge medications');
 }
 
 function doseCalcSearch(q) {
