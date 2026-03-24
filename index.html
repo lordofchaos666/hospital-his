@@ -1564,10 +1564,19 @@ function analyzePatient(p) {
   const hr = parseInt(v.hr, 10);
   // Age-adjusted HR thresholds (WHO/Nelson paediatric norms)
   // Neonate (<1m): normal 100-180; Infant (<1y): 100-160; Child: 70-140; Adult-like >12y: 60-100
-  const ageYrs = p.dob ? Math.floor((new Date()-new Date(p.dob))/31557600000) : (p.ageText ? parseInt(p.ageText,10)||5 : 5);
-  const hrMax = ageYrs < 0.1 ? 190 : ageYrs < 1 ? 180 : ageYrs < 5 ? 160 : ageYrs < 12 ? 140 : 120;
-  const hrMin = ageYrs < 0.1 ? 100 : ageYrs < 1 ? 90 : ageYrs < 5 ? 80 : ageYrs < 12 ? 70 : 60;
-  const rrMax = ageYrs < 0.1 ? 70 : ageYrs < 1 ? 60 : ageYrs < 5 ? 40 : ageYrs < 12 ? 30 : 20;
+  // Age in fractional years for threshold comparisons — precise for paediatrics
+  const ageMs   = p.dob ? (new Date() - new Date(p.dob)) : null;
+  const ageMos  = ageMs ? ageMs / 2629800000 : null;  // months
+  const ageYrs  = ageMos ? ageMos / 12 : (p.ageText ? parseFloat(p.ageText) || 5 : 5);
+  // HR thresholds (Nelson / WHO)
+  // Neonate <1m: 100-190  Infant 1-12m: 90-180  Toddler 1-5y: 80-160  School 5-12y: 70-130  Teen >12y: 60-100
+  const hrMax = ageMos !== null ? (ageMos < 1 ? 190 : ageMos < 12 ? 180 : ageYrs < 5 ? 160 : ageYrs < 12 ? 130 : 100)
+                                : (ageYrs < 1 ? 180 : ageYrs < 5 ? 160 : ageYrs < 12 ? 130 : 100);
+  const hrMin = ageMos !== null ? (ageMos < 1 ? 100 : ageMos < 12 ? 90 : ageYrs < 5 ? 80 : ageYrs < 12 ? 70 : 60)
+                                : (ageYrs < 1 ? 90 : ageYrs < 5 ? 80 : ageYrs < 12 ? 70 : 60);
+  // RR thresholds (WHO IMCI)
+  const rrMax = ageMos !== null ? (ageMos < 2 ? 60 : ageMos < 12 ? 50 : ageYrs < 5 ? 40 : ageYrs < 12 ? 30 : 20)
+                                : (ageYrs < 1 ? 50 : ageYrs < 5 ? 40 : ageYrs < 12 ? 30 : 20);
   if (hr > hrMax*1.1 || hr < hrMin*0.9) { criticalScore += 3; factors.push(`HR: ${hr} bpm`); }
   else if (hr > hrMax || hr < hrMin) { criticalScore += 1; moderate.push(`HR: ${hr} bpm`); }
 
@@ -1784,6 +1793,25 @@ function loadData() {
     if(!p.notes)           p.notes = [];
     if(!p.dischargeInfo)   p.dischargeInfo = null;
   });
+
+  // 1b. Restore session if page was refreshed
+  if(!currentUser) {
+    try {
+      const saved = localStorage.getItem('cwh_session');
+      if(saved) {
+        const u = JSON.parse(saved);
+        if(u && u.id && u.role) {
+          currentUser = u;
+          currentRole = u.role;
+          document.getElementById('loginScreen').style.display = 'none';
+          document.getElementById('mainApp').style.display = '';
+          document.getElementById('currentUserBadge').textContent = u.name + ' · ' + u.role.charAt(0).toUpperCase() + u.role.slice(1);
+          if(u.role === 'admin') document.getElementById('adminNavBtn').style.display = '';
+          updateRoleUI();
+        }
+      }
+    } catch(e) {}
+  }
 
   // 2. Connect Firebase — use hash config (new device) or existing saved config
   const cfg = hashCfg || fbGetConfig();
@@ -2071,7 +2099,7 @@ function renderPatientDetail(id) {
         <button class="ptd-btn" onclick="openVitalsModal('${id}')">📊 Vitals</button>
         <button class="ptd-btn" onclick="openProgressNote('${id}')" style="border-color:#56d364;color:#56d364;">📝 Progress</button>
         <button class="ptd-btn" onclick="openDraftSummary('${id}')" style="border-color:var(--accent);color:var(--accent);">📋 Summary</button>
-        <button class="ptd-btn danger" onclick="openDischargeModal('${id}')">🏠 Discharge</button>
+        ${currentRole !== 'nurse' ? `<button class="ptd-btn danger" onclick="openDischargeModal('${id}')">🏠 Discharge</button>` : ''}
       </div>
     </div>
     <div class="detail-tabs">
@@ -2272,7 +2300,7 @@ function buildDetailTabContent(id) {
               <div class="med-name">${icon} ${m.drug}${badge}</div>
               <div class="med-dose">${m.dose}${m.route?' · ':''}<span class="med-chip">${m.route}</span><span class="med-chip">${m.frequency}</span>${m.duration?`<span class="med-chip">${m.duration}</span>`:''}</div>
               ${m.instructions?`<div style="font-size:11px;color:var(--text3);margin-top:3px;">${m.instructions}</div>`:''}
-              <div style="font-size:10px;color:var(--text3);margin-top:2px;">Ordered: ${m.ordered}</div>
+              <div style="font-size:10px;color:var(--text3);margin-top:2px;">Ordered: ${m.ordered}${m.orderedBy ? ' · Dr. ' + m.orderedBy : ''}</div>
             </div>
             <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;">
               <button class="btn btn-success btn-sm" onclick="markMedGiven('${id}','${m.id}')">✅ Given</button>
@@ -2283,7 +2311,7 @@ function buildDetailTabContent(id) {
               </div>` : ''}
             </div>
           </div>
-          ${givenTimes.length > 0 ? `<div class="med-log">${givenTimes.slice(-5).reverse().map(g => `<div class="med-log-item">✅ ${g.time} — ${g.nurse||'Staff'}</div>`).join('')}</div>` : ''}
+          ${givenTimes.length > 0 ? `<div class="med-log">${givenTimes.slice(-5).reverse().map(g => `<div class="med-log-item">✅ ${g.givenAtDisplay||g.time} — ${g.givenBy||g.nurse||'Staff'}</div>`).join('')}</div>` : ''}
         </div>`;
       });
     }
@@ -2539,8 +2567,9 @@ function openAdmitModal() {
 function admitPatient() {
   const name = document.getElementById('a_name').value.trim();
   const diagnosis = document.getElementById('a_diagnosis').value.trim();
-  if(!name) { alert('Patient name is required'); return; }
+  if(!name)      { alert('Patient name is required'); return; }
   if(!diagnosis) { alert('Provisional diagnosis is required'); return; }
+  if(diagnosis.trim().length < 3) { alert('Please enter a more specific diagnosis (min 3 characters)'); return; }
 
   const hr = parseInt(document.getElementById('a_hr', 10).value, 10);
   const rr = parseInt(document.getElementById('a_rr', 10).value, 10);
@@ -2945,7 +2974,13 @@ function saveLabPanel() {
   });
 
   if(!p.labPanels) p.labPanels = [];
-  p.labPanels.push({ id: Date.now().toString(), name, date, results });
+  p.labPanels.push({
+    id: Date.now().toString(),
+    name, date, results,
+    orderedAt: new Date().toISOString(),
+    orderedBy: currentUser ? currentUser.name : 'Unknown',
+    orderedByRole: currentUser ? currentUser.role : 'doctor'
+  });
   saveData();
   closeModal('labModal');
   if(selectedPatientId === labTargetId) renderPatientDetail(labTargetId);
@@ -3029,7 +3064,8 @@ function openMedModal(id) {
   document.getElementById('mcSearch').value = '';
   document.getElementById('mcResult').innerHTML = '';
   document.getElementById('mcDrop').style.display = 'none';
-  window._mcDrug = null;
+  window._mcDrug  = null;
+  window._mcHits  = [];
   // Reset O2 fields
   document.getElementById('mm_o2params').value = '';
   document.getElementById('mm_o2spo2').value = '';
@@ -3064,6 +3100,7 @@ function saveMedication() {
       duration: document.getElementById('mm_o2notes').value || 'As needed',
       instructions: 'Target SpO₂: ' + (document.getElementById('mm_o2spo2').value || 'per clinical judgment'),
       ordered: new Date().toLocaleString('en-IN'),
+      orderedBy: currentUser ? currentUser.name : 'Unknown',
       given: [],
       isO2: true,
       isIvf: false
@@ -3084,6 +3121,7 @@ function saveMedication() {
       duration: document.getElementById('mm_ivf_dur').value || '',
       instructions: additives || '',
       ordered: new Date().toLocaleString('en-IN'),
+      orderedBy: currentUser ? currentUser.name : 'Unknown',
       given: [],
       isO2: false,
       isIvf: true
@@ -3100,6 +3138,7 @@ function saveMedication() {
       duration: document.getElementById('mm_duration').value,
       instructions: document.getElementById('mm_instructions').value,
       ordered: new Date().toLocaleString('en-IN'),
+      orderedBy: currentUser ? currentUser.name : 'Unknown',
       given: [],
       isO2: false,
       isIvf: false
@@ -3151,7 +3190,12 @@ function markMedGiven(patientId, medId) {
   if(!med) return;
   const nurse = prompt('Administered by (nurse/staff name):','');
   if(!med.given) med.given = [];
-  med.given.push({ time: new Date().toLocaleString('en-IN'), nurse: nurse||'Staff' });
+  med.given.push({
+    givenAt: new Date().toISOString(),
+    givenAtDisplay: new Date().toLocaleString('en-IN'),
+    givenBy: nurse || 'Staff',
+    givenByRole: currentUser ? currentUser.role : 'nurse'
+  });
   saveData();
   renderPatientDetail(patientId);
 }
@@ -4369,6 +4413,8 @@ function doLogin() {
   }
   // Update badge
   document.getElementById('currentUserBadge').textContent = account.name + ' · ' + account.role.charAt(0).toUpperCase() + account.role.slice(1);
+  // Persist session so page refresh restores login
+  try { localStorage.setItem('cwh_session', JSON.stringify(currentUser)); } catch(e) {}
   // If nurse, default role switcher to nurse
   if(currentRole === 'nurse') {
     appSetRole('nurse');
@@ -4382,6 +4428,7 @@ function doLogin() {
 function doLogout() {
   currentUser = null;
   currentRole = 'doctor';
+  try { localStorage.removeItem('cwh_session'); } catch(e) {}
   document.getElementById('mainApp').style.display = 'none';
   document.getElementById('loginScreen').style.display = 'flex';
   document.getElementById('loginId').value = '';
