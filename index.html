@@ -1082,6 +1082,7 @@ html,body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text
             </div>
           </div>
           <div id="mcResult" style="margin-top:4px;"></div>
+          <div id="mcAiResult"></div>
         </div>
       </div>
       <!-- IV Fluid fields -->
@@ -3079,6 +3080,7 @@ function openMedModal(id) {
   document.getElementById('mcWt').value = p ? p.weight||'' : '';
   document.getElementById('mcSearch').value = '';
   document.getElementById('mcResult').innerHTML = '';
+  document.getElementById('mcAiResult').innerHTML = '';
   document.getElementById('mcDrop').style.display = 'none';
   window._mcDrug  = null;
   window._mcHits  = [];
@@ -3346,8 +3348,8 @@ function doseCalcSearch(q) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// MED MODAL CALCULATOR — clean standalone implementation
-// Global: window._mcDrug = currently selected drug object
+// MED MODAL CALCULATOR — Accurate mg/kg/day vs mg/kg/dose
+// Global: window._mcDrug = selected drug object
 // ═══════════════════════════════════════════════════════════
 
 function mcSearchDrug(q) {
@@ -3363,19 +3365,16 @@ function mcSearchDrug(q) {
   drop.innerHTML = hits.map(function(d, i) {
     return '<div class="mc-drop-item" data-i="' + i + '" style="padding:8px 12px;cursor:pointer;font-size:12px;border-bottom:1px solid var(--border);">' +
       '<span style="font-weight:600;color:var(--text);">' + d.name + '</span>' +
-      '<span style="font-size:10px;color:var(--text3);margin-left:8px;">' + d.class + ' · ' + d.routes.join('/') + '</span>' +
+      '<span style="font-size:10px;color:var(--text3);margin-left:8px;">' + d.class + ' \xb7 ' + d.routes.join('/') + '</span>' +
       '</div>';
   }).join('');
-  // Bind clicks via event delegation on the drop container
+  window._mcHits = hits;
+  drop.style.display = 'block';
   drop.querySelectorAll('.mc-drop-item').forEach(function(el) {
     el.addEventListener('mouseenter', function(){ el.style.background='var(--surface2)'; });
     el.addEventListener('mouseleave', function(){ el.style.background=''; });
     el.addEventListener('click', function(){ mcPickDrug(parseInt(el.dataset.i, 10)); });
   });
-
-  // Store hits array so mcPickDrug can index into it
-  window._mcHits = hits;
-  drop.style.display = 'block';
 }
 
 function mcPickDrug(i) {
@@ -3391,74 +3390,108 @@ function mcRefresh() {
   if(window._mcDrug) mcRenderDoses();
 }
 
-function mcRenderDoses() {
-  const drug = window._mcDrug;
-  if(!drug) return;
-  const wt  = parseFloat(document.getElementById('mcWt').value) || 0;
+// ── Core calculation — handles ALL 5 dose patterns accurately ──────────────
+function mcCalcFull(doseStr, wt) {
+  if(!wt || wt <= 0) return null;
+  var s = doseStr.toLowerCase();
 
-  let html = '<div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:6px;">' +
-    drug.name + ' <span style="color:var(--text3);font-weight:400;">' + drug.class + '</span></div>';
+  // Detect dose-basis
+  var isPerDay  = /\/day\b/i.test(doseStr);
+  var isPerDose = /\/dose\b/i.test(doseStr);
+  // If neither, treat mg/kg alone as per-dose (single dose)
+  if(!isPerDay && !isPerDose) isPerDose = true;
 
-  drug.doses.forEach(function(d, i) {
-    if(!d.dose) return;
-    var calc = mcCalc(d.dose, wt);
-    html += '<div class="mc-dose-row" data-i="' + i + '" style="padding:7px 10px;margin-bottom:4px;' +
-      'border:1px solid var(--border);border-radius:6px;background:var(--surface2);cursor:pointer;">' +
-      '<div style="font-size:11px;color:var(--text2);margin-bottom:3px;">' + d.ind + '</div>' +
-      '<div style="font-size:12px;color:var(--accent);font-family:monospace;">' + d.dose + '</div>' +
-      (calc ? '<div style="font-size:12px;font-weight:600;color:#56d364;margin-top:2px;">' + calc +
-        ' <span style="font-size:10px;color:var(--text3);">► click to use</span></div>' : '') +
-      '</div>';
-  });
+  // Extract dosesPerDay from ÷ qNh pattern (e.g. ÷ q8h → 3, ÷ q12h → 2, ÷ q6-8h → 3)
+  var dosesPerDay = 1;
+  var divMatch = doseStr.match(/\u00f7\s*q(\d+)(?:[–\-](\d+))?h/i);
+  if(divMatch) {
+    // Range like q6-8h → use shorter interval (more doses)
+    var hrs = parseInt(divMatch[1], 10);
+    dosesPerDay = Math.round(24 / hrs);
+  } else if(isPerDay && !isPerDose) {
+    // Infer from text frequency markers
+    if(/\bq4h\b/i.test(doseStr))                              dosesPerDay = 6;
+    else if(/\bq6h\b/i.test(doseStr))                         dosesPerDay = 4;
+    else if(/\bq8h\b/i.test(doseStr))                         dosesPerDay = 3;
+    else if(/\bq12h\b/i.test(doseStr))                        dosesPerDay = 2;
+    else if(/\bqid\b|4\s*times/i.test(doseStr))               dosesPerDay = 4;
+    else if(/\btds\b|\btid\b|3\s*times/i.test(doseStr))       dosesPerDay = 3;
+    else if(/\bbd\b|\bbid\b|twice/i.test(doseStr))            dosesPerDay = 2;
+    else if(/\bod\b|\bonce\b|once\s*daily/i.test(doseStr))    dosesPerDay = 1;
+    else                                                        dosesPerDay = 1;
+  }
 
-  var el = document.getElementById('mcResult');
-  el.innerHTML = html;
-  // Bind clicks via event delegation — no inline handlers
-  el.querySelectorAll('.mc-dose-row').forEach(function(row) {
-    row.addEventListener('mouseenter', function(){ row.style.borderColor='#56d364'; });
-    row.addEventListener('mouseleave', function(){ row.style.borderColor='var(--border)'; });
-    row.addEventListener('click', function(){ mcUse(parseInt(row.dataset.i, 10)); });
-  });
+  // Extract numeric mg/kg dose (handles ranges like 25-45 or 25–45)
+  var mgMatch = doseStr.match(/([\d.]+)\s*[–\-]\s*([\d.]+)\s*mg\/kg|([\d.]+)\s*mg\/kg/);
+  if(mgMatch) {
+    var lo  = parseFloat(mgMatch[1] || mgMatch[3]);
+    var hi  = mgMatch[2] ? parseFloat(mgMatch[2]) : null;
+    var loD = parseFloat((lo * wt).toFixed(1));
+    var hiD = hi ? parseFloat((hi * wt).toFixed(1)) : null;
+    if(isPerDose) {
+      return { perDose: hi ? loD + '\u2013' + hiD + ' mg' : loD + ' mg',
+               daily: null, unit: 'mg', isPerDose: true, dosesPerDay: dosesPerDay,
+               loPerDose: loD, hiPerDose: hiD };
+    } else {
+      var loP = parseFloat((loD / dosesPerDay).toFixed(1));
+      var hiP = hiD ? parseFloat((hiD / dosesPerDay).toFixed(1)) : null;
+      return { perDose: hi ? loP + '\u2013' + hiP + ' mg/dose' : loP + ' mg/dose',
+               daily: hi ? loD + '\u2013' + hiD + ' mg/day' : loD + ' mg/day',
+               unit: 'mg', isPerDose: false, dosesPerDay: dosesPerDay,
+               loPerDose: loP, hiPerDose: hiP, loDaily: loD, hiDaily: hiD };
+    }
+  }
+
+  // Extract mcg/kg dose
+  var mcgMatch = doseStr.match(/([\d.]+)\s*[–\-]\s*([\d.]+)\s*mcg\/kg|([\d.]+)\s*mcg\/kg/);
+  if(mcgMatch) {
+    var lo2  = parseFloat(mcgMatch[1] || mcgMatch[3]);
+    var hi2  = mcgMatch[2] ? parseFloat(mcgMatch[2]) : null;
+    var loD2 = parseFloat((lo2 * wt).toFixed(2));
+    var hiD2 = hi2 ? parseFloat((hi2 * wt).toFixed(2)) : null;
+    if(isPerDose) {
+      return { perDose: hi2 ? loD2 + '\u2013' + hiD2 + ' mcg' : loD2 + ' mcg',
+               daily: null, unit: 'mcg', isPerDose: true, dosesPerDay: dosesPerDay,
+               loPerDose: loD2, hiPerDose: hiD2 };
+    } else {
+      var loP2 = parseFloat((loD2 / dosesPerDay).toFixed(2));
+      var hiP2 = hiD2 ? parseFloat((hiD2 / dosesPerDay).toFixed(2)) : null;
+      return { perDose: hi2 ? loP2 + '\u2013' + hiP2 + ' mcg/dose' : loP2 + ' mcg/dose',
+               daily: hi2 ? loD2 + '\u2013' + hiD2 + ' mcg/day' : loD2 + ' mcg/day',
+               unit: 'mcg', isPerDose: false, dosesPerDay: dosesPerDay,
+               loPerDose: loP2, hiPerDose: hiP2, loDaily: loD2, hiDaily: hiD2 };
+    }
+  }
+
+  return null;
 }
 
+// Legacy wrapper for sidebar calc compatibility
 function mcCalc(doseStr, wt) {
-  if(!wt || wt <= 0) return '';
-  var mgMatch = doseStr.match(/([\d.]+)\s*[–\-]\s*([\d.]+)\s*mg\/kg|^([\d.]+)\s*mg\/kg/);
-  if(mgMatch) {
-    var lo = parseFloat(mgMatch[1] || mgMatch[3]);
-    var hi = mgMatch[2] ? parseFloat(mgMatch[2]) : null;
-    return hi ? '= ' + (lo*wt).toFixed(1) + '–' + (hi*wt).toFixed(1) + ' mg'
-              : '= ' + (lo*wt).toFixed(1) + ' mg';
-  }
-  var mcgMatch = doseStr.match(/([\d.]+)\s*[–\-]\s*([\d.]+)\s*mcg\/kg|^([\d.]+)\s*mcg\/kg/);
-  if(mcgMatch) {
-    var lo2 = parseFloat(mcgMatch[1] || mcgMatch[3]);
-    var hi2 = mcgMatch[2] ? parseFloat(mcgMatch[2]) : null;
-    return hi2 ? '= ' + (lo2*wt).toFixed(1) + '–' + (hi2*wt).toFixed(1) + ' mcg'
-               : '= ' + (lo2*wt).toFixed(1) + ' mcg';
-  }
-  return '';
+  var r = mcCalcFull(doseStr, wt);
+  if(!r) return '';
+  return '= ' + r.perDose;
 }
 
 function mcFreq(doseStr) {
   var s = doseStr.toLowerCase();
   if(s.includes('stat') || s.includes('single dose')) return 'Stat';
-  var dm = s.match(/÷\s*q(\d+)/);
+  var dm = s.match(/\u00f7\s*q(\d+)/);
   if(dm) {
-    var h = parseInt(dm[1],10);
-    if(h<=4)  return 'q4h';
-    if(h<=6)  return 'q6h';
-    if(h<=8)  return 'q8h';
-    if(h<=12) return 'q12h';
+    var h = parseInt(dm[1], 10);
+    if(h <= 4)  return 'q4h';
+    if(h <= 6)  return 'q6h';
+    if(h <= 8)  return 'q8h';
+    if(h <= 12) return 'q12h';
     return 'q24h';
   }
   var qm = s.match(/q(\d+)h/);
   if(qm) {
-    var h2 = parseInt(qm[1],10);
-    if(h2<=4)  return 'q4h';
-    if(h2<=6)  return 'q6h';
-    if(h2<=8)  return 'q8h';
-    if(h2<=12) return 'q12h';
+    var h2 = parseInt(qm[1], 10);
+    if(h2 <= 4)  return 'q4h';
+    if(h2 <= 6)  return 'q6h';
+    if(h2 <= 8)  return 'q8h';
+    if(h2 <= 12) return 'q12h';
     return 'q24h';
   }
   if(s.includes('4 times') || s.includes('qid')) return 'QID';
@@ -3466,28 +3499,97 @@ function mcFreq(doseStr) {
   if(s.includes('twice')   || s.includes('bd')  || s.includes('bid')) return 'BD';
   if(s.includes('once')    || s.includes('od'))  return 'OD';
   if(s.includes('prn') || s.includes('as needed')) return 'PRN';
-  return s.includes('÷') || s.includes('divided') ? 'TDS' : 'OD';
+  return (s.includes('\u00f7') || s.includes('divided')) ? 'TDS' : 'OD';
 }
 
 function mcRoute(doseStr, drugRoutes) {
   var s = doseStr.toLowerCase();
-  var words = s.split(/[\s,;().\/]+/);
+  var words = s.split(/[\s,;()./]+/);
   if(words.includes('iv') || s.includes('(iv)')) return 'IV';
   if(words.includes('im') || s.includes('(im)')) return 'IM';
   if(words.includes('sc') || s.includes('(sc)')) return 'SC';
   if(s.includes('oral') || words.includes('po') || s.includes('(po)')) return 'PO';
-  if(s.includes('nebu') || s.includes('inh'))  return 'Inhaled';
-  if(s.includes('topical'))                     return 'Topical';
-  if(s.includes('nasal'))                       return 'Intranasal';
+  if(s.includes('nebu') || s.includes('inh'))   return 'Inhaled';
+  if(s.includes('topical'))                      return 'Topical';
+  if(s.includes('nasal'))                        return 'Intranasal';
   return (drugRoutes && drugRoutes.length) ? drugRoutes[0] : 'PO';
 }
 
 function mcDur(doseStr) {
-  var dm = doseStr.match(/[x×]\s*(\d+)(?:[–\-]\d+)?\s*days?/i);
+  var dm = doseStr.match(/[x\u00d7]\s*(\d+)(?:[–\-]\d+)?\s*days?/i);
   if(dm) return dm[1] + ' days';
-  var wm = doseStr.match(/[x×]\s*(\d+)(?:[–\-]\d+)?\s*weeks?/i);
+  var wm = doseStr.match(/[x\u00d7]\s*(\d+)(?:[–\-]\d+)?\s*weeks?/i);
   if(wm) return wm[1] + ' weeks';
   return '';
+}
+
+// ── Render dose results with accurate per-dose + daily breakdown ─────────────
+function mcRenderDoses() {
+  const drug = window._mcDrug;
+  if(!drug) return;
+  const wt = parseFloat(document.getElementById('mcWt').value) || 0;
+
+  let html = '<div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:6px;">' +
+    drug.name + ' <span style="color:var(--text3);font-weight:400;">' + drug.class + '</span></div>';
+
+  drug.doses.forEach(function(d, i) {
+    if(!d.dose) return;
+    var r   = wt > 0 ? mcCalcFull(d.dose, wt) : null;
+    var freq = mcFreq(d.dose);
+    var route = mcRoute(d.dose, drug.routes);
+
+    var calcHtml = '';
+    if(r) {
+      if(!r.isPerDose && r.daily) {
+        // Show BOTH daily total AND per-dose clearly
+        calcHtml =
+          '<div style="margin-top:4px;">' +
+          '<span style="font-size:11px;color:var(--text3);">Daily total: </span>' +
+          '<span style="font-size:12px;font-weight:600;color:#e3b341;">' + r.daily + '</span>' +
+          '</div>' +
+          '<div style="margin-top:2px;">' +
+          '<span style="font-size:11px;color:var(--text3);">Per dose (' + r.dosesPerDay + '\u00d7/day): </span>' +
+          '<span style="font-size:13px;font-weight:700;color:#56d364;">' + r.perDose + '</span>' +
+          ' <span style="font-size:10px;color:var(--text3);">\u25ba click to use</span>' +
+          '</div>';
+      } else {
+        // Per dose already
+        calcHtml =
+          '<div style="margin-top:4px;">' +
+          '<span style="font-size:11px;color:var(--text3);">Per dose: </span>' +
+          '<span style="font-size:13px;font-weight:700;color:#56d364;">' + r.perDose + '</span>' +
+          ' <span style="font-size:10px;color:var(--text3);">\u25ba click to use</span>' +
+          '</div>';
+      }
+    } else if(wt <= 0) {
+      calcHtml = '<div style="font-size:10px;color:var(--text3);margin-top:3px;">Enter weight above to calculate</div>';
+    }
+
+    html += '<div class="mc-dose-row" data-i="' + i + '" ' +
+      'style="padding:8px 10px;margin-bottom:5px;border:1px solid var(--border);' +
+      'border-radius:6px;background:var(--surface2);cursor:pointer;">' +
+      '<div style="font-size:11px;color:var(--text2);margin-bottom:2px;">' + d.ind + '</div>' +
+      '<div style="font-size:11px;color:var(--accent2);font-family:monospace;">' + d.dose + '</div>' +
+      calcHtml +
+      '</div>';
+  });
+
+  // AI Validate button
+  if(wt > 0) {
+    html += '<div style="margin-top:8px;">' +
+      '<button onclick="mcAiValidate()" style="width:100%;padding:6px;background:rgba(138,43,226,0.15);' +
+      'border:1px solid rgba(138,43,226,0.4);border-radius:6px;color:#a855f7;font-size:11px;cursor:pointer;">' +
+      '\u{1F916} AI Safety Check — verify dose with Claude</button>' +
+      '</div>';
+  }
+
+  var el = document.getElementById('mcResult');
+  el.innerHTML = html;
+  el.querySelectorAll('.mc-dose-row').forEach(function(row) {
+    row.addEventListener('mouseenter', function(){ row.style.borderColor='#56d364'; });
+    row.addEventListener('mouseleave', function(){ row.style.borderColor='var(--border)'; });
+    row.addEventListener('click', function(){ mcUse(parseInt(row.dataset.i, 10)); });
+  });
 }
 
 function mcUse(i) {
@@ -3497,13 +3599,19 @@ function mcUse(i) {
   if(!d) return;
 
   var wt    = parseFloat(document.getElementById('mcWt').value) || 0;
-  var calc  = mcCalc(d.dose, wt);
+  var r     = mcCalcFull(d.dose, wt);
   var freq  = mcFreq(d.dose);
   var route = mcRoute(d.dose, drug.routes);
   var dur   = mcDur(d.dose);
-  var finalDose = calc ? calc.replace(/^=\s*/,'').trim() : d.dose.split('÷')[0].trim();
 
-  // Fill the form fields directly
+  // Use per-dose amount for the dose field (not total daily)
+  var finalDose;
+  if(r) {
+    finalDose = r.perDose.replace(/\/dose$/,'').trim();
+  } else {
+    finalDose = d.dose.split('\u00f7')[0].trim();
+  }
+
   document.getElementById('mm_drug').value = drug.name;
   document.getElementById('mm_dose').value = finalDose;
   if(dur) document.getElementById('mm_duration').value = dur;
@@ -3511,33 +3619,116 @@ function mcUse(i) {
   var routeEl = document.getElementById('mm_route');
   if(routeEl) {
     var ro = Array.from(routeEl.options);
-    var rm = ro.find(function(o){ return o.value.toLowerCase()===route.toLowerCase(); });
+    var rm = ro.find(function(o){ return o.value.toLowerCase() === route.toLowerCase(); });
     routeEl.value = rm ? rm.value : ro[0].value;
   }
 
   var freqEl = document.getElementById('mm_freq');
   if(freqEl) {
     var fo = Array.from(freqEl.options);
-    var fm = fo.find(function(o){ return o.value.toLowerCase()===freq.toLowerCase(); }) ||
-             fo.find(function(o){ return o.value.replace(/h$/i,'')===freq.replace(/h$/i,''); });
+    var fm = fo.find(function(o){ return o.value.toLowerCase() === freq.toLowerCase(); }) ||
+             fo.find(function(o){ return o.value.replace(/h$/i,'') === freq.replace(/h$/i,''); });
     freqEl.value = fm ? fm.value : fo[0].value;
   }
 
-  // Show confirmation banner in calc area
+  // Show confirmation banner
+  var dailyLine = (r && r.daily) ? '<br><span style="color:#e3b341;font-size:10px;">Daily total: ' + r.daily + '</span>' : '';
   document.getElementById('mcResult').insertAdjacentHTML('afterbegin',
     '<div style="background:rgba(86,211,100,0.15);border:1px solid #56d364;border-radius:6px;' +
     'padding:8px 12px;font-size:12px;color:#56d364;margin-bottom:8px;">' +
-    '✅ <strong>' + drug.name + '</strong> &mdash; ' + finalDose +
+    '\u2705 <strong>' + drug.name + '</strong> &mdash; ' + finalDose +
     ' &middot; ' + (routeEl ? routeEl.value : route) +
     ' &middot; ' + (freqEl ? freqEl.value : freq) +
     (dur ? ' &middot; ' + dur : '') +
-    ' &nbsp;<span style="font-size:10px;color:var(--text2);">Scroll up to see filled fields ↑</span>' +
+    dailyLine +
     '</div>'
   );
-
-  // Scroll modal to top to show filled fields
   var modal = document.querySelector('#medModal .modal');
   if(modal) modal.scrollTop = 0;
+}
+
+// ── AI Safety Check via Anthropic API ────────────────────────────────────────
+async function mcAiValidate() {
+  const drug = window._mcDrug;
+  if(!drug) return;
+  const wt     = parseFloat(document.getElementById('mcWt').value) || 0;
+  const ptName = document.getElementById('mm_ptName') ? document.getElementById('mm_ptName').textContent : '';
+  if(!wt) { alert('Enter patient weight first'); return; }
+
+  // Gather doses being shown
+  const doses = drug.doses.map(function(d, i) {
+    var r = mcCalcFull(d.dose, wt);
+    return {
+      ind: d.ind,
+      raw: d.dose,
+      perDose: r ? r.perDose : 'N/A',
+      daily: r ? (r.daily || r.perDose) : 'N/A',
+      freq: mcFreq(d.dose)
+    };
+  });
+
+  const aiBtn = document.querySelector('button[onclick="mcAiValidate()"]');
+  if(aiBtn) {
+    aiBtn.disabled = true;
+    aiBtn.textContent = '\u{1F916} Checking with AI...';
+  }
+
+  const resultEl = document.getElementById('mcAiResult');
+  if(resultEl) resultEl.innerHTML = '<div style="color:var(--text2);font-size:11px;padding:6px;">Asking Claude...</div>';
+
+  const prompt = 'You are a senior paediatric pharmacist. Validate the following dose calculations for ' +
+    drug.name + ' (class: ' + drug.class + ') for a child weighing ' + wt + ' kg.\n\n' +
+    'Calculated doses:\n' +
+    doses.map(function(d, i) {
+      return (i+1) + '. Indication: ' + d.ind + '\n' +
+        '   Raw protocol: ' + d.raw + '\n' +
+        '   Calculated per dose: ' + d.perDose + ' (' + d.freq + ')\n' +
+        '   Daily total: ' + d.daily;
+    }).join('\n\n') +
+    '\n\nFor each dose:\n' +
+    '1. Is the per-dose calculation CORRECT for ' + wt + ' kg? (yes/no + correct value if wrong)\n' +
+    '2. Is the dose SAFE and within standard paediatric range (Nelson/IAP guidelines)? (safe/low/high/toxic)\n' +
+    '3. Any important clinical notes (max dose, renal adjustment, dilution, monitoring)?\n\n' +
+    'Be concise. Flag anything DANGEROUS in capital letters. Format as plain text, one section per indication.';
+
+  try {
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1000,
+        messages: [{ role: 'user', content: prompt }]
+      })
+    });
+    const data = await resp.json();
+    const text = (data.content && data.content[0]) ? data.content[0].text : 'No response';
+
+    // Check for any danger flags
+    var isDanger = /DANGER|TOXIC|OVERDOSE|LETHAL|EXCEEDS|WARNING/i.test(text);
+    var borderColor = isDanger ? '#f85149' : '#56d364';
+    var bgColor     = isDanger ? 'rgba(248,81,73,0.1)' : 'rgba(86,211,100,0.08)';
+
+    var html = '<div style="background:' + bgColor + ';border:1px solid ' + borderColor + ';' +
+      'border-radius:7px;padding:10px 12px;margin-top:8px;font-size:11px;line-height:1.6;color:var(--text);">' +
+      '<div style="font-weight:700;color:' + borderColor + ';margin-bottom:6px;">\u{1F916} Claude AI Safety Check</div>' +
+      text.replace(/\n/g, '<br>').replace(/(DANGER|TOXIC|OVERDOSE|WARNING)/g,
+        '<span style="background:#f85149;color:#fff;padding:1px 4px;border-radius:3px;font-weight:700;">$1</span>') +
+      '</div>';
+
+    if(resultEl) {
+      resultEl.innerHTML = html;
+    } else {
+      document.getElementById('mcResult').insertAdjacentHTML('beforeend', html);
+    }
+  } catch(err) {
+    if(resultEl) resultEl.innerHTML = '<div style="color:#f85149;font-size:11px;padding:6px;">AI check failed: ' + err.message + '</div>';
+  } finally {
+    if(aiBtn) {
+      aiBtn.disabled = false;
+      aiBtn.textContent = '\u{1F916} AI Safety Check — verify dose with Claude';
+    }
+  }
 }
 
 // Close mcDrop when clicking outside
