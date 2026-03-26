@@ -2392,12 +2392,6 @@ function buildDetailTabContent(id) {
         <div class="note-text">${n.text}</div>
       </div>`).join('')}`;
   }
-  return '';
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// FORMS TAB — Consent, Blood Transfusion, Code Blue
-// ─────────────────────────────────────────────────────────────────────────────
 
   if(activeDetailTab === 'forms') {
     if(!p.forms) p.forms = [];
@@ -2497,6 +2491,14 @@ function buildDetailTabContent(id) {
       </div>
       ${p.ventilatorCharts.length === 0 ? '<div class="empty-state"><div class="ei">💨</div><p>No ventilator readings recorded</p></div>' : ventRows}`;
   }
+  return '';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FORMS TAB — Consent, Blood Transfusion, Code Blue
+// ─────────────────────────────────────────────────────────────────────────────
+
+
 
 // ============================================================
 // VITALS CHARTS
