@@ -614,7 +614,10 @@ html,body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text
         <div class="form-group"><label class="form-label">Admission Type</label>
           <select class="form-select" id="a_admtype"><option>Emergency</option><option>Elective</option><option>Transfer</option></select></div>
         <div class="form-group full"><label class="form-label">Provisional Diagnosis *</label><input class="form-input" id="a_diagnosis" placeholder="e.g. Neonatal sepsis, Dengue fever"></div>
-        <div class="form-group full"><label class="form-label">Clinical Notes</label><textarea class="form-textarea" id="a_notes" placeholder="Initial clinical findings, history..."></textarea></div>
+        <div class="form-group full"><label class="form-label" style="color:var(--accent);font-weight:600;">📋 Admission History</label><textarea class="form-textarea" id="a_history" placeholder="Chief complaint, HPI, past medical history, birth history, immunisation, family/social history..." rows="3"></textarea></div>
+        <div class="form-group full"><label class="form-label" style="color:var(--accent);font-weight:600;">🔬 Examination Findings</label><textarea class="form-textarea" id="a_examination" placeholder="General condition, vitals at admission, CVS, RS, CNS, Abdomen findings..." rows="3"></textarea></div>
+        <div class="form-group full"><label class="form-label" style="color:var(--accent);font-weight:600;">🩺 Differential Diagnosis</label><textarea class="form-textarea" id="a_diffDx" placeholder="Differential diagnoses, investigations ordered, initial management plan..." rows="2"></textarea></div>
+        <div class="form-group full"><label class="form-label">Additional Clinical Notes</label><textarea class="form-textarea" id="a_notes" placeholder="Other relevant notes..."></textarea></div>
       </div>
       <div class="form-section-title">Initial Vitals (Optional)</div>
       <div class="form-grid cols3">
@@ -649,6 +652,7 @@ html,body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text
           </select></div>
         <div class="form-group full"><label class="form-label">Final Diagnosis</label><input class="form-input" id="dm_finalDx" placeholder="Final confirmed diagnosis"></div>
         <div class="form-group full"><label class="form-label">Clinical Summary</label><textarea class="form-textarea" id="dm_summary" placeholder="Brief hospital course, procedures, response to treatment..."></textarea></div>
+        <div class="form-group full"><label class="form-label">ICD-10 Diagnosis Code(s)</label><input class="form-input" id="dm_icd" placeholder="e.g. J18.9, A09, P07.3 — separate multiple codes with commas"></div>
         <div class="form-group full"><label class="form-label">Discharge Instructions</label><textarea class="form-textarea" id="dm_instructions" placeholder="Diet, activity restrictions, wound care, when to return..."></textarea></div>
         <div class="form-group"><label class="form-label">Follow-up Date</label><input class="form-input" type="date" id="dm_followup"></div>
         <div class="form-group"><label class="form-label">Follow-up Location</label><input class="form-input" id="dm_followupLoc" placeholder="OPD / Clinic / Specialist"></div>
@@ -1799,6 +1803,9 @@ function loadData() {
     if(!p.stoppedMeds)     p.stoppedMeds = [];
     if(!p.notes)           p.notes = [];
     if(!p.dischargeInfo)   p.dischargeInfo = null;
+    if(!p.forms)           p.forms = [];
+    if(!p.procedures)      p.procedures = [];
+    if(!p.ventilatorCharts) p.ventilatorCharts = [];
   });
 
   // 1b. Restore session if page was refreshed — fully guarded
@@ -2131,6 +2138,9 @@ function renderPatientDetail(id) {
       <div class="dtab ${activeDetailTab==='meds'?'active':''}" onclick="switchDetailTab('${id}','meds')">Medications</div>
       <div class="dtab ${activeDetailTab==='ai'?'active':''}" onclick="switchDetailTab('${id}','ai')">AI Analysis</div>
       <div class="dtab ${activeDetailTab==='notes'?'active':''}" onclick="switchDetailTab('${id}','notes')">Notes</div>
+      <div class="dtab ${activeDetailTab==='forms'?'active':''}" onclick="switchDetailTab('${id}','forms')">📋 Forms</div>
+      <div class="dtab ${activeDetailTab==='procedures'?'active':''}" onclick="switchDetailTab('${id}','procedures')">🔧 Procedures</div>
+      <div class="dtab ${activeDetailTab==='ventilator'?'active':''}" onclick="switchDetailTab('${id}','ventilator')">💨 Ventilator</div>
     </div>
     <div class="detail-content" id="detailTabContent">
       ${buildDetailTabContent(id)}
@@ -2385,6 +2395,109 @@ function buildDetailTabContent(id) {
   return '';
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// FORMS TAB — Consent, Blood Transfusion, Code Blue
+// ─────────────────────────────────────────────────────────────────────────────
+
+  if(activeDetailTab === 'forms') {
+    if(!p.forms) p.forms = [];
+    const formTypes = ['Consent - Procedure/Surgery','Consent - Anaesthesia','Consent - Blood Transfusion',
+      'Consent - ICU Admission','Consent - LAMA','Blood Transfusion Form','Code Blue Record','Procedure Note'];
+
+    const formRows = p.forms.map((f,i) => `
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;
+        background:var(--surface2);border:1px solid var(--border);border-radius:7px;margin-bottom:6px;">
+        <div>
+          <div style="font-size:12px;font-weight:600;color:var(--text);">${escapeHtml(f.type)}</div>
+          <div style="font-size:10px;color:var(--text3);margin-top:2px;">${f.date} · ${f.by||currentUser.name}</div>
+          ${f.notes ? `<div style="font-size:11px;color:var(--text2);margin-top:3px;">${escapeHtml(f.notes)}</div>` : ''}
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;">
+          ${f.signed ? '<span style="font-size:10px;color:#56d364;font-weight:600;">✅ Signed</span>' :
+            `<button onclick="signForm('${p.id}',${i})" style="padding:3px 8px;background:rgba(86,211,100,0.15);
+              border:1px solid #56d364;border-radius:5px;color:#56d364;font-size:10px;cursor:pointer;">Sign</button>`}
+          ${currentRole !== 'nurse' ? `<button onclick="deleteForm('${p.id}',${i})"
+            style="padding:3px 8px;background:rgba(248,81,73,0.1);border:1px solid #f85149;
+              border-radius:5px;color:#f85149;font-size:10px;cursor:pointer;">Delete</button>` : ''}
+        </div>
+      </div>`).join('');
+
+    return `
+      <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
+        ${currentRole !== 'nurse' ? `<button onclick="openFormModal('${p.id}')"
+          style="padding:6px 14px;background:var(--accent);border:none;border-radius:7px;
+            color:#fff;font-size:12px;cursor:pointer;">+ Add Form / Record</button>` : ''}
+      </div>
+      ${p.forms.length === 0 ? '<div class="empty-state"><div class="ei">📋</div><p>No forms or records yet</p></div>' : formRows}`;
+  }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PROCEDURES TAB
+// ─────────────────────────────────────────────────────────────────────────────
+
+  if(activeDetailTab === 'procedures') {
+    if(!p.procedures) p.procedures = [];
+
+    const procRows = p.procedures.map((pr,i) => `
+      <div style="padding:10px 12px;background:var(--surface2);border:1px solid var(--border);
+        border-radius:7px;margin-bottom:8px;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+          <div style="flex:1;">
+            <div style="font-size:12px;font-weight:600;color:var(--text);">${escapeHtml(pr.name)}</div>
+            <div style="font-size:10px;color:var(--text3);margin-top:2px;">${pr.date} · ${pr.by||currentUser.name}
+              ${pr.anesthesia ? ' · Anaesthesia: ' + escapeHtml(pr.anesthesia) : ''}</div>
+            ${pr.findings ? `<div style="font-size:11px;color:var(--text2);margin-top:5px;"><strong>Findings:</strong> ${escapeHtml(pr.findings)}</div>` : ''}
+            ${pr.complications ? `<div style="font-size:11px;color:#f85149;margin-top:3px;"><strong>Complications:</strong> ${escapeHtml(pr.complications)}</div>` : ''}
+            ${pr.notes ? `<div style="font-size:11px;color:var(--text2);margin-top:3px;">${escapeHtml(pr.notes)}</div>` : ''}
+          </div>
+          ${currentRole !== 'nurse' ? `<button onclick="deleteProcedure('${p.id}',${i})"
+            style="padding:3px 8px;background:rgba(248,81,73,0.1);border:1px solid #f85149;
+              border-radius:5px;color:#f85149;font-size:10px;cursor:pointer;margin-left:8px;">Delete</button>` : ''}
+        </div>
+      </div>`).join('');
+
+    return `
+      <div style="display:flex;gap:8px;margin-bottom:12px;">
+        ${currentRole !== 'nurse' ? `<button onclick="openProcedureModal('${p.id}')"
+          style="padding:6px 14px;background:var(--accent);border:none;border-radius:7px;
+            color:#fff;font-size:12px;cursor:pointer;">+ Add Procedure Note</button>` : ''}
+      </div>
+      ${p.procedures.length === 0 ? '<div class="empty-state"><div class="ei">🔧</div><p>No procedure notes yet</p></div>' : procRows}`;
+  }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// VENTILATOR TAB
+// ─────────────────────────────────────────────────────────────────────────────
+
+  if(activeDetailTab === 'ventilator') {
+    if(!p.ventilatorCharts) p.ventilatorCharts = [];
+    const ventRows = p.ventilatorCharts.map((v,i) => `
+      <div style="padding:10px 12px;background:var(--surface2);border:1px solid var(--border);
+        border-radius:7px;margin-bottom:6px;">
+        <div style="font-size:10px;color:var(--text3);margin-bottom:6px;">${v.time} · ${v.by||currentUser.name}</div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;font-size:11px;">
+          ${v.mode ? `<div><span style="color:var(--text3);">Mode</span><br><strong>${escapeHtml(v.mode)}</strong></div>` : ''}
+          ${v.fio2 ? `<div><span style="color:var(--text3);">FiO₂</span><br><strong>${v.fio2}%</strong></div>` : ''}
+          ${v.peep ? `<div><span style="color:var(--text3);">PEEP</span><br><strong>${v.peep} cmH₂O</strong></div>` : ''}
+          ${v.pip ? `<div><span style="color:var(--text3);">PIP</span><br><strong>${v.pip} cmH₂O</strong></div>` : ''}
+          ${v.rr ? `<div><span style="color:var(--text3);">RR (set)</span><br><strong>${v.rr}/min</strong></div>` : ''}
+          ${v.tv ? `<div><span style="color:var(--text3);">Tidal Vol</span><br><strong>${v.tv} mL</strong></div>` : ''}
+          ${v.map_vent ? `<div><span style="color:var(--text3);">MAP</span><br><strong>${v.map_vent} cmH₂O</strong></div>` : ''}
+          ${v.spo2 ? `<div><span style="color:var(--text3);">SpO₂</span><br><strong>${v.spo2}%</strong></div>` : ''}
+          ${v.etco2 ? `<div><span style="color:var(--text3);">EtCO₂</span><br><strong>${v.etco2} mmHg</strong></div>` : ''}
+        </div>
+        ${v.notes ? `<div style="font-size:11px;color:var(--text2);margin-top:6px;border-top:1px solid var(--border);padding-top:4px;">${escapeHtml(v.notes)}</div>` : ''}
+      </div>`).join('');
+
+    return `
+      <div style="margin-bottom:12px;">
+        <button onclick="openVentilatorModal('${p.id}')"
+          style="padding:6px 14px;background:var(--accent);border:none;border-radius:7px;
+            color:#fff;font-size:12px;cursor:pointer;">+ Add Ventilator Reading</button>
+      </div>
+      ${p.ventilatorCharts.length === 0 ? '<div class="empty-state"><div class="ei">💨</div><p>No ventilator readings recorded</p></div>' : ventRows}`;
+  }
+
 // ============================================================
 // VITALS CHARTS
 // ============================================================
@@ -2576,6 +2689,7 @@ function openAdmitModal() {
   document.getElementById('a_consultant').value = '';
   document.getElementById('a_diagnosis').value = '';
   document.getElementById('a_notes').value = '';
+  ['a_history','a_examination','a_diffDx'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
   document.getElementById('a_hr').value = '';
   document.getElementById('a_rr').value = '';
   document.getElementById('a_spo2').value = '';
@@ -2631,6 +2745,9 @@ function admitPatient() {
     admissionDate: now.toLocaleDateString('en-IN'),
     admissionDateTime: now.toISOString(),
     diagnosis,
+    admissionHistory: document.getElementById('a_history') ? document.getElementById('a_history').value : '',
+    examinationFindings: document.getElementById('a_examination') ? document.getElementById('a_examination').value : '',
+    differentialDiagnosis: document.getElementById('a_diffDx') ? document.getElementById('a_diffDx').value : '',
     clinicalNotes: document.getElementById('a_notes').value,
     status: 'active',
     vitals,
@@ -2839,6 +2956,7 @@ function confirmDischarge() {
   p.dischargeInfo = {
     date: document.getElementById('dm_date').value,
     condition: document.getElementById('dm_condition').value,
+    icdCodes: document.getElementById('dm_icd') ? document.getElementById('dm_icd').value : '',
     finalDiagnosis: finalDx,
     summary: document.getElementById('dm_summary').value,
     instructions: document.getElementById('dm_instructions').value,
@@ -3086,6 +3204,7 @@ function openMedModal(id) {
   document.getElementById('mcSearch').value = '';
   document.getElementById('mcResult').innerHTML = '';
   document.getElementById('mcAiResult').innerHTML = '';
+  const icdEl = document.getElementById('dm_icd'); if(icdEl) icdEl.value = '';
   document.getElementById('mcDrop').style.display = 'none';
   window._mcDrug  = null;
   window._mcHits  = [];
@@ -3847,7 +3966,7 @@ function printDischargeCard(id) {
   const printWin = window.open('', '_blank', 'width=900,height=700');
   printWin.document.write(`<!DOCTYPE html><html><head>
     <meta charset="UTF-8">
-    <title>Discharge Summary — ${p.name}</title>
+    <title>${di.condition==="Expired"?"Death Summary":di.condition&&di.condition.includes("Referred")?"Referral Summary":di.condition&&di.condition.includes("LAMA")?"LAMA Summary":"Discharge Summary"} — ${p.name}</title>
     <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
     <style>
       *{margin:0;padding:0;box-sizing:border-box;}
@@ -3884,7 +4003,7 @@ function printDischargeCard(id) {
       </div>
     </div>
     <div class="divider-bar"></div>
-    <div class="card-title">DISCHARGE SUMMARY</div>
+    <div class="card-title">${di.condition==="Expired"?"DEATH SUMMARY":di.condition&&di.condition.includes("Referred")?"REFERRAL SUMMARY":di.condition&&di.condition.includes("LAMA")?"LAMA SUMMARY":"DISCHARGE SUMMARY"}</div>
 
     <div class="info-grid">
       <div class="info-cell"><div class="info-label">Patient Name</div><div class="info-val">${p.name}</div></div>
@@ -4000,7 +4119,97 @@ function printDischargeCard(id) {
     </div>
   </div>
   <script>setTimeout(()=>window.print(), 800);<\/script>
-  </body></html>`);
+  
+<!-- ===== FORM / CONSENT MODAL ===== -->
+<div class="modal-overlay" id="formModal">
+  <div class="modal" style="max-width:480px;">
+    <div class="modal-header"><h3>📋 Add Form / Record</h3><button class="modal-close" onclick="closeModal('formModal')">✕</button></div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group full"><label class="form-label">Form / Record Type *</label>
+          <select class="form-select" id="fm_type">
+            <option>Consent - Procedure/Surgery</option>
+            <option>Consent - Anaesthesia</option>
+            <option>Consent - Blood Transfusion</option>
+            <option>Consent - ICU Admission</option>
+            <option>Consent - LAMA</option>
+            <option>Blood Transfusion Form</option>
+            <option>Code Blue Record</option>
+            <option>Procedure Note</option>
+            <option>Other</option>
+          </select></div>
+        <div class="form-group"><label class="form-label">Date</label><input class="form-input" type="date" id="fm_date"></div>
+        <div class="form-group"><label class="form-label">Signed by Patient/Guardian</label>
+          <select class="form-select" id="fm_signed"><option value="0">Not yet signed</option><option value="1">Signed</option></select></div>
+        <div class="form-group full"><label class="form-label">Notes / Details</label>
+          <textarea class="form-textarea" id="fm_notes" rows="3" placeholder="Blood group, units, donor details (for transfusion); time of cardiac arrest, ROSC (for code blue); procedure details, patient/guardian name, witness..."></textarea></div>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
+        <button class="btn-secondary" onclick="closeModal('formModal')">Cancel</button>
+        <button class="btn-primary" onclick="saveForm()">Save Record</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== PROCEDURE NOTE MODAL ===== -->
+<div class="modal-overlay" id="procedureModal">
+  <div class="modal" style="max-width:520px;">
+    <div class="modal-header"><h3>🔧 Procedure Note</h3><button class="modal-close" onclick="closeModal('procedureModal')">✕</button></div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group full"><label class="form-label">Procedure Name *</label>
+          <input class="form-input" id="pm_name" placeholder="e.g. Lumbar puncture, IV cannulation, ET intubation, Chest drain, Umbilical catheter..."></div>
+        <div class="form-group"><label class="form-label">Date & Time</label><input class="form-input" type="datetime-local" id="pm_date"></div>
+        <div class="form-group"><label class="form-label">Anaesthesia / Sedation</label>
+          <input class="form-input" id="pm_anesthesia" placeholder="None / Local / Ketamine..."></div>
+        <div class="form-group full"><label class="form-label">Indication</label>
+          <input class="form-input" id="pm_indication" placeholder="Reason for procedure..."></div>
+        <div class="form-group full"><label class="form-label">Findings / Details</label>
+          <textarea class="form-textarea" id="pm_findings" rows="2" placeholder="CSF appearance, pressure; fluid appearance; ET tube size, depth..."></textarea></div>
+        <div class="form-group full"><label class="form-label">Complications</label>
+          <textarea class="form-textarea" id="pm_complications" rows="2" placeholder="None / describe if any..."></textarea></div>
+        <div class="form-group full"><label class="form-label">Post-procedure Notes</label>
+          <textarea class="form-textarea" id="pm_notes" rows="2" placeholder="Patient tolerated well, post-procedure vitals, plan..."></textarea></div>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
+        <button class="btn-secondary" onclick="closeModal('procedureModal')">Cancel</button>
+        <button class="btn-primary" onclick="saveProcedure()">Save Note</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== VENTILATOR MODAL ===== -->
+<div class="modal-overlay" id="ventilatorModal">
+  <div class="modal" style="max-width:540px;">
+    <div class="modal-header"><h3>💨 Ventilator Chart Entry</h3><button class="modal-close" onclick="closeModal('ventilatorModal')">✕</button></div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group"><label class="form-label">Mode</label>
+          <select class="form-select" id="vc_mode">
+            <option>SIMV</option><option>AC/VC</option><option>PRVC</option><option>PSV</option>
+            <option>CPAP</option><option>BiPAP</option><option>HFOV</option><option>HFNC</option>
+          </select></div>
+        <div class="form-group"><label class="form-label">FiO₂ (%)</label><input class="form-input" type="number" id="vc_fio2" min="21" max="100" placeholder="21–100"></div>
+        <div class="form-group"><label class="form-label">PEEP (cmH₂O)</label><input class="form-input" type="number" id="vc_peep" placeholder="e.g. 5"></div>
+        <div class="form-group"><label class="form-label">PIP (cmH₂O)</label><input class="form-input" type="number" id="vc_pip" placeholder="e.g. 18"></div>
+        <div class="form-group"><label class="form-label">RR (set/min)</label><input class="form-input" type="number" id="vc_rr" placeholder="e.g. 40"></div>
+        <div class="form-group"><label class="form-label">Tidal Volume (mL)</label><input class="form-input" type="number" id="vc_tv" placeholder="e.g. 30"></div>
+        <div class="form-group"><label class="form-label">MAP (cmH₂O)</label><input class="form-input" type="number" id="vc_map" placeholder="mean airway pressure"></div>
+        <div class="form-group"><label class="form-label">SpO₂ (%)</label><input class="form-input" type="number" id="vc_spo2" min="0" max="100" placeholder="e.g. 96"></div>
+        <div class="form-group"><label class="form-label">EtCO₂ (mmHg)</label><input class="form-input" type="number" id="vc_etco2" placeholder="e.g. 35"></div>
+        <div class="form-group full"><label class="form-label">Notes</label>
+          <textarea class="form-textarea" id="vc_notes" rows="2" placeholder="Secretions, ETT position, clinical response, ABG..."></textarea></div>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
+        <button class="btn-secondary" onclick="closeModal('ventilatorModal')">Cancel</button>
+        <button class="btn-primary" onclick="saveVentilatorReading()">Save Reading</button>
+      </div>
+    </div>
+  </div>
+</div>
+</body></html>`);
   printWin.document.close();
 }
 
@@ -4427,7 +4636,97 @@ function printProgressNote() {
       <div class="sig-box">${get('pn_doctor')||'Dr. _______________'}<br>Consultant / Treating Physician<br>Reg. No.: _______________</div>
       <div class="sig-box">Stamp / Counter-signature<br>Chandrawati Hospital<br>Date: ${dateVal}</div>
     </div>
-  </div><script>setTimeout(()=>window.print(),500);<\/script></body></html>`);
+  </div><script>setTimeout(()=>window.print(),500);<\/script>
+<!-- ===== FORM / CONSENT MODAL ===== -->
+<div class="modal-overlay" id="formModal">
+  <div class="modal" style="max-width:480px;">
+    <div class="modal-header"><h3>📋 Add Form / Record</h3><button class="modal-close" onclick="closeModal('formModal')">✕</button></div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group full"><label class="form-label">Form / Record Type *</label>
+          <select class="form-select" id="fm_type">
+            <option>Consent - Procedure/Surgery</option>
+            <option>Consent - Anaesthesia</option>
+            <option>Consent - Blood Transfusion</option>
+            <option>Consent - ICU Admission</option>
+            <option>Consent - LAMA</option>
+            <option>Blood Transfusion Form</option>
+            <option>Code Blue Record</option>
+            <option>Procedure Note</option>
+            <option>Other</option>
+          </select></div>
+        <div class="form-group"><label class="form-label">Date</label><input class="form-input" type="date" id="fm_date"></div>
+        <div class="form-group"><label class="form-label">Signed by Patient/Guardian</label>
+          <select class="form-select" id="fm_signed"><option value="0">Not yet signed</option><option value="1">Signed</option></select></div>
+        <div class="form-group full"><label class="form-label">Notes / Details</label>
+          <textarea class="form-textarea" id="fm_notes" rows="3" placeholder="Blood group, units, donor details (for transfusion); time of cardiac arrest, ROSC (for code blue); procedure details, patient/guardian name, witness..."></textarea></div>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
+        <button class="btn-secondary" onclick="closeModal('formModal')">Cancel</button>
+        <button class="btn-primary" onclick="saveForm()">Save Record</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== PROCEDURE NOTE MODAL ===== -->
+<div class="modal-overlay" id="procedureModal">
+  <div class="modal" style="max-width:520px;">
+    <div class="modal-header"><h3>🔧 Procedure Note</h3><button class="modal-close" onclick="closeModal('procedureModal')">✕</button></div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group full"><label class="form-label">Procedure Name *</label>
+          <input class="form-input" id="pm_name" placeholder="e.g. Lumbar puncture, IV cannulation, ET intubation, Chest drain, Umbilical catheter..."></div>
+        <div class="form-group"><label class="form-label">Date & Time</label><input class="form-input" type="datetime-local" id="pm_date"></div>
+        <div class="form-group"><label class="form-label">Anaesthesia / Sedation</label>
+          <input class="form-input" id="pm_anesthesia" placeholder="None / Local / Ketamine..."></div>
+        <div class="form-group full"><label class="form-label">Indication</label>
+          <input class="form-input" id="pm_indication" placeholder="Reason for procedure..."></div>
+        <div class="form-group full"><label class="form-label">Findings / Details</label>
+          <textarea class="form-textarea" id="pm_findings" rows="2" placeholder="CSF appearance, pressure; fluid appearance; ET tube size, depth..."></textarea></div>
+        <div class="form-group full"><label class="form-label">Complications</label>
+          <textarea class="form-textarea" id="pm_complications" rows="2" placeholder="None / describe if any..."></textarea></div>
+        <div class="form-group full"><label class="form-label">Post-procedure Notes</label>
+          <textarea class="form-textarea" id="pm_notes" rows="2" placeholder="Patient tolerated well, post-procedure vitals, plan..."></textarea></div>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
+        <button class="btn-secondary" onclick="closeModal('procedureModal')">Cancel</button>
+        <button class="btn-primary" onclick="saveProcedure()">Save Note</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== VENTILATOR MODAL ===== -->
+<div class="modal-overlay" id="ventilatorModal">
+  <div class="modal" style="max-width:540px;">
+    <div class="modal-header"><h3>💨 Ventilator Chart Entry</h3><button class="modal-close" onclick="closeModal('ventilatorModal')">✕</button></div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group"><label class="form-label">Mode</label>
+          <select class="form-select" id="vc_mode">
+            <option>SIMV</option><option>AC/VC</option><option>PRVC</option><option>PSV</option>
+            <option>CPAP</option><option>BiPAP</option><option>HFOV</option><option>HFNC</option>
+          </select></div>
+        <div class="form-group"><label class="form-label">FiO₂ (%)</label><input class="form-input" type="number" id="vc_fio2" min="21" max="100" placeholder="21–100"></div>
+        <div class="form-group"><label class="form-label">PEEP (cmH₂O)</label><input class="form-input" type="number" id="vc_peep" placeholder="e.g. 5"></div>
+        <div class="form-group"><label class="form-label">PIP (cmH₂O)</label><input class="form-input" type="number" id="vc_pip" placeholder="e.g. 18"></div>
+        <div class="form-group"><label class="form-label">RR (set/min)</label><input class="form-input" type="number" id="vc_rr" placeholder="e.g. 40"></div>
+        <div class="form-group"><label class="form-label">Tidal Volume (mL)</label><input class="form-input" type="number" id="vc_tv" placeholder="e.g. 30"></div>
+        <div class="form-group"><label class="form-label">MAP (cmH₂O)</label><input class="form-input" type="number" id="vc_map" placeholder="mean airway pressure"></div>
+        <div class="form-group"><label class="form-label">SpO₂ (%)</label><input class="form-input" type="number" id="vc_spo2" min="0" max="100" placeholder="e.g. 96"></div>
+        <div class="form-group"><label class="form-label">EtCO₂ (mmHg)</label><input class="form-input" type="number" id="vc_etco2" placeholder="e.g. 35"></div>
+        <div class="form-group full"><label class="form-label">Notes</label>
+          <textarea class="form-textarea" id="vc_notes" rows="2" placeholder="Secretions, ETT position, clinical response, ABG..."></textarea></div>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
+        <button class="btn-secondary" onclick="closeModal('ventilatorModal')">Cancel</button>
+        <button class="btn-primary" onclick="saveVentilatorReading()">Save Reading</button>
+      </div>
+    </div>
+  </div>
+</div>
+</body></html>`);
   printWin.document.close();
 }
 
@@ -4570,7 +4869,97 @@ function printDischargeSummaryTemplate() {
       <div class="sig-box">Stamp / Signature<br>Chandrawati Hospital<br>Date: ${get('dst_dod')||'_______________'}</div>
     </div>
     <div class="footer">${HOSPITAL.name} · ${HOSPITAL.address}, ${HOSPITAL.pin} · Tel: ${HOSPITAL.phone}<br>Computer-generated discharge summary. For queries, contact the hospital.</div>
-  </div><script>setTimeout(()=>window.print(),600);<\/script></body></html>`);
+  </div><script>setTimeout(()=>window.print(),600);<\/script>
+<!-- ===== FORM / CONSENT MODAL ===== -->
+<div class="modal-overlay" id="formModal">
+  <div class="modal" style="max-width:480px;">
+    <div class="modal-header"><h3>📋 Add Form / Record</h3><button class="modal-close" onclick="closeModal('formModal')">✕</button></div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group full"><label class="form-label">Form / Record Type *</label>
+          <select class="form-select" id="fm_type">
+            <option>Consent - Procedure/Surgery</option>
+            <option>Consent - Anaesthesia</option>
+            <option>Consent - Blood Transfusion</option>
+            <option>Consent - ICU Admission</option>
+            <option>Consent - LAMA</option>
+            <option>Blood Transfusion Form</option>
+            <option>Code Blue Record</option>
+            <option>Procedure Note</option>
+            <option>Other</option>
+          </select></div>
+        <div class="form-group"><label class="form-label">Date</label><input class="form-input" type="date" id="fm_date"></div>
+        <div class="form-group"><label class="form-label">Signed by Patient/Guardian</label>
+          <select class="form-select" id="fm_signed"><option value="0">Not yet signed</option><option value="1">Signed</option></select></div>
+        <div class="form-group full"><label class="form-label">Notes / Details</label>
+          <textarea class="form-textarea" id="fm_notes" rows="3" placeholder="Blood group, units, donor details (for transfusion); time of cardiac arrest, ROSC (for code blue); procedure details, patient/guardian name, witness..."></textarea></div>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
+        <button class="btn-secondary" onclick="closeModal('formModal')">Cancel</button>
+        <button class="btn-primary" onclick="saveForm()">Save Record</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== PROCEDURE NOTE MODAL ===== -->
+<div class="modal-overlay" id="procedureModal">
+  <div class="modal" style="max-width:520px;">
+    <div class="modal-header"><h3>🔧 Procedure Note</h3><button class="modal-close" onclick="closeModal('procedureModal')">✕</button></div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group full"><label class="form-label">Procedure Name *</label>
+          <input class="form-input" id="pm_name" placeholder="e.g. Lumbar puncture, IV cannulation, ET intubation, Chest drain, Umbilical catheter..."></div>
+        <div class="form-group"><label class="form-label">Date & Time</label><input class="form-input" type="datetime-local" id="pm_date"></div>
+        <div class="form-group"><label class="form-label">Anaesthesia / Sedation</label>
+          <input class="form-input" id="pm_anesthesia" placeholder="None / Local / Ketamine..."></div>
+        <div class="form-group full"><label class="form-label">Indication</label>
+          <input class="form-input" id="pm_indication" placeholder="Reason for procedure..."></div>
+        <div class="form-group full"><label class="form-label">Findings / Details</label>
+          <textarea class="form-textarea" id="pm_findings" rows="2" placeholder="CSF appearance, pressure; fluid appearance; ET tube size, depth..."></textarea></div>
+        <div class="form-group full"><label class="form-label">Complications</label>
+          <textarea class="form-textarea" id="pm_complications" rows="2" placeholder="None / describe if any..."></textarea></div>
+        <div class="form-group full"><label class="form-label">Post-procedure Notes</label>
+          <textarea class="form-textarea" id="pm_notes" rows="2" placeholder="Patient tolerated well, post-procedure vitals, plan..."></textarea></div>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
+        <button class="btn-secondary" onclick="closeModal('procedureModal')">Cancel</button>
+        <button class="btn-primary" onclick="saveProcedure()">Save Note</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== VENTILATOR MODAL ===== -->
+<div class="modal-overlay" id="ventilatorModal">
+  <div class="modal" style="max-width:540px;">
+    <div class="modal-header"><h3>💨 Ventilator Chart Entry</h3><button class="modal-close" onclick="closeModal('ventilatorModal')">✕</button></div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group"><label class="form-label">Mode</label>
+          <select class="form-select" id="vc_mode">
+            <option>SIMV</option><option>AC/VC</option><option>PRVC</option><option>PSV</option>
+            <option>CPAP</option><option>BiPAP</option><option>HFOV</option><option>HFNC</option>
+          </select></div>
+        <div class="form-group"><label class="form-label">FiO₂ (%)</label><input class="form-input" type="number" id="vc_fio2" min="21" max="100" placeholder="21–100"></div>
+        <div class="form-group"><label class="form-label">PEEP (cmH₂O)</label><input class="form-input" type="number" id="vc_peep" placeholder="e.g. 5"></div>
+        <div class="form-group"><label class="form-label">PIP (cmH₂O)</label><input class="form-input" type="number" id="vc_pip" placeholder="e.g. 18"></div>
+        <div class="form-group"><label class="form-label">RR (set/min)</label><input class="form-input" type="number" id="vc_rr" placeholder="e.g. 40"></div>
+        <div class="form-group"><label class="form-label">Tidal Volume (mL)</label><input class="form-input" type="number" id="vc_tv" placeholder="e.g. 30"></div>
+        <div class="form-group"><label class="form-label">MAP (cmH₂O)</label><input class="form-input" type="number" id="vc_map" placeholder="mean airway pressure"></div>
+        <div class="form-group"><label class="form-label">SpO₂ (%)</label><input class="form-input" type="number" id="vc_spo2" min="0" max="100" placeholder="e.g. 96"></div>
+        <div class="form-group"><label class="form-label">EtCO₂ (mmHg)</label><input class="form-input" type="number" id="vc_etco2" placeholder="e.g. 35"></div>
+        <div class="form-group full"><label class="form-label">Notes</label>
+          <textarea class="form-textarea" id="vc_notes" rows="2" placeholder="Secretions, ETT position, clinical response, ABG..."></textarea></div>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
+        <button class="btn-secondary" onclick="closeModal('ventilatorModal')">Cancel</button>
+        <button class="btn-primary" onclick="saveVentilatorReading()">Save Reading</button>
+      </div>
+    </div>
+  </div>
+</div>
+</body></html>`);
   printWin.document.close();
 }
 
@@ -4919,6 +5308,154 @@ function setupEnterNav(modalId) {
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
+
+// ============================================================
+// FORMS (Consent / Blood Transfusion / Code Blue)
+// ============================================================
+
+let formTargetId = null;
+
+function openFormModal(id) {
+  formTargetId = id;
+  const now = new Date();
+  document.getElementById('fm_date').value = now.toISOString().split('T')[0];
+  document.getElementById('fm_notes').value = '';
+  document.getElementById('fm_signed').value = '0';
+  document.getElementById('formModal').classList.add('open');
+}
+
+function saveForm() {
+  if(!formTargetId) return;
+  const p = getPatient(formTargetId);
+  if(!p) return;
+  if(!p.forms) p.forms = [];
+  p.forms.push({
+    type:   document.getElementById('fm_type').value,
+    date:   document.getElementById('fm_date').value,
+    signed: document.getElementById('fm_signed').value === '1',
+    notes:  document.getElementById('fm_notes').value,
+    by:     currentUser ? currentUser.name : 'Unknown',
+    addedAt: new Date().toISOString()
+  });
+  saveData();
+  closeModal('formModal');
+  if(selectedPatientId === formTargetId) renderPatientDetail(formTargetId);
+  showToast('✅ Form / record saved');
+}
+
+function signForm(patientId, idx) {
+  const p = getPatient(patientId);
+  if(!p || !p.forms || !p.forms[idx]) return;
+  p.forms[idx].signed = true;
+  p.forms[idx].signedAt = new Date().toISOString();
+  p.forms[idx].signedBy = currentUser ? currentUser.name : 'Unknown';
+  saveData();
+  renderPatientDetail(patientId);
+  showToast('✅ Form signed');
+}
+
+function deleteForm(patientId, idx) {
+  if(currentRole === 'nurse') { alert('Only doctors can delete records.'); return; }
+  if(!confirm('Delete this record?')) return;
+  const p = getPatient(patientId);
+  if(!p || !p.forms) return;
+  p.forms.splice(idx, 1);
+  saveData();
+  renderPatientDetail(patientId);
+}
+
+// ============================================================
+// PROCEDURE NOTES
+// ============================================================
+
+let procedureTargetId = null;
+
+function openProcedureModal(id) {
+  procedureTargetId = id;
+  const now = new Date();
+  const local = new Date(now - now.getTimezoneOffset()*60000).toISOString().slice(0,16);
+  document.getElementById('pm_date').value = local;
+  ['pm_name','pm_anesthesia','pm_indication','pm_findings','pm_complications','pm_notes']
+    .forEach(id => document.getElementById(id).value = '');
+  document.getElementById('procedureModal').classList.add('open');
+}
+
+function saveProcedure() {
+  if(!procedureTargetId) return;
+  const p = getPatient(procedureTargetId);
+  if(!p) return;
+  const name = document.getElementById('pm_name').value.trim();
+  if(!name) { alert('Procedure name is required'); return; }
+  if(!p.procedures) p.procedures = [];
+  p.procedures.push({
+    name:          name,
+    date:          document.getElementById('pm_date').value,
+    anesthesia:    document.getElementById('pm_anesthesia').value,
+    indication:    document.getElementById('pm_indication').value,
+    findings:      document.getElementById('pm_findings').value,
+    complications: document.getElementById('pm_complications').value,
+    notes:         document.getElementById('pm_notes').value,
+    by:            currentUser ? currentUser.name : 'Unknown',
+    addedAt:       new Date().toISOString()
+  });
+  saveData();
+  closeModal('procedureModal');
+  if(selectedPatientId === procedureTargetId) renderPatientDetail(procedureTargetId);
+  showToast('✅ Procedure note saved');
+}
+
+function deleteProcedure(patientId, idx) {
+  if(currentRole === 'nurse') { alert('Only doctors can delete procedure notes.'); return; }
+  if(!confirm('Delete this procedure note?')) return;
+  const p = getPatient(patientId);
+  if(!p || !p.procedures) return;
+  p.procedures.splice(idx, 1);
+  saveData();
+  renderPatientDetail(patientId);
+}
+
+// ============================================================
+// VENTILATOR CHART
+// ============================================================
+
+let ventilatorTargetId = null;
+
+function openVentilatorModal(id) {
+  ventilatorTargetId = id;
+  ['vc_fio2','vc_peep','vc_pip','vc_rr','vc_tv','vc_map','vc_spo2','vc_etco2','vc_notes']
+    .forEach(eid => document.getElementById(eid).value = '');
+  document.getElementById('ventilatorModal').classList.add('open');
+}
+
+function saveVentilatorReading() {
+  if(!ventilatorTargetId) return;
+  const p = getPatient(ventilatorTargetId);
+  if(!p) return;
+  if(!p.ventilatorCharts) p.ventilatorCharts = [];
+  const g = id => { const el = document.getElementById(id); return el ? el.value : ''; };
+  p.ventilatorCharts.push({
+    time:     new Date().toLocaleString('en-IN'),
+    by:       currentUser ? currentUser.name : 'Unknown',
+    mode:     g('vc_mode'),
+    fio2:     g('vc_fio2'),
+    peep:     g('vc_peep'),
+    pip:      g('vc_pip'),
+    rr:       g('vc_rr'),
+    tv:       g('vc_tv'),
+    map_vent: g('vc_map'),
+    spo2:     g('vc_spo2'),
+    etco2:    g('vc_etco2'),
+    notes:    g('vc_notes'),
+    addedAt:  new Date().toISOString()
+  });
+  saveData();
+  closeModal('ventilatorModal');
+  if(selectedPatientId === ventilatorTargetId) renderPatientDetail(ventilatorTargetId);
+  showToast('✅ Ventilator reading saved');
+}
+
+
+
 </script>
 
 <!-- Mobile bottom nav -->
@@ -4933,5 +5470,95 @@ function setupEnterNav(modalId) {
 <div id="sidebarOverlay" onclick="toggleSidebar()" style="display:none;position:fixed;inset:0;background:#0007;z-index:180;"></div>
 
 </div><!-- end mainApp -->
+
+<!-- ===== FORM / CONSENT MODAL ===== -->
+<div class="modal-overlay" id="formModal">
+  <div class="modal" style="max-width:480px;">
+    <div class="modal-header"><h3>📋 Add Form / Record</h3><button class="modal-close" onclick="closeModal('formModal')">✕</button></div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group full"><label class="form-label">Form / Record Type *</label>
+          <select class="form-select" id="fm_type">
+            <option>Consent - Procedure/Surgery</option>
+            <option>Consent - Anaesthesia</option>
+            <option>Consent - Blood Transfusion</option>
+            <option>Consent - ICU Admission</option>
+            <option>Consent - LAMA</option>
+            <option>Blood Transfusion Form</option>
+            <option>Code Blue Record</option>
+            <option>Procedure Note</option>
+            <option>Other</option>
+          </select></div>
+        <div class="form-group"><label class="form-label">Date</label><input class="form-input" type="date" id="fm_date"></div>
+        <div class="form-group"><label class="form-label">Signed by Patient/Guardian</label>
+          <select class="form-select" id="fm_signed"><option value="0">Not yet signed</option><option value="1">Signed</option></select></div>
+        <div class="form-group full"><label class="form-label">Notes / Details</label>
+          <textarea class="form-textarea" id="fm_notes" rows="3" placeholder="Blood group, units, donor details (for transfusion); time of cardiac arrest, ROSC (for code blue); procedure details, patient/guardian name, witness..."></textarea></div>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
+        <button class="btn-secondary" onclick="closeModal('formModal')">Cancel</button>
+        <button class="btn-primary" onclick="saveForm()">Save Record</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== PROCEDURE NOTE MODAL ===== -->
+<div class="modal-overlay" id="procedureModal">
+  <div class="modal" style="max-width:520px;">
+    <div class="modal-header"><h3>🔧 Procedure Note</h3><button class="modal-close" onclick="closeModal('procedureModal')">✕</button></div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group full"><label class="form-label">Procedure Name *</label>
+          <input class="form-input" id="pm_name" placeholder="e.g. Lumbar puncture, IV cannulation, ET intubation, Chest drain, Umbilical catheter..."></div>
+        <div class="form-group"><label class="form-label">Date & Time</label><input class="form-input" type="datetime-local" id="pm_date"></div>
+        <div class="form-group"><label class="form-label">Anaesthesia / Sedation</label>
+          <input class="form-input" id="pm_anesthesia" placeholder="None / Local / Ketamine..."></div>
+        <div class="form-group full"><label class="form-label">Indication</label>
+          <input class="form-input" id="pm_indication" placeholder="Reason for procedure..."></div>
+        <div class="form-group full"><label class="form-label">Findings / Details</label>
+          <textarea class="form-textarea" id="pm_findings" rows="2" placeholder="CSF appearance, pressure; fluid appearance; ET tube size, depth..."></textarea></div>
+        <div class="form-group full"><label class="form-label">Complications</label>
+          <textarea class="form-textarea" id="pm_complications" rows="2" placeholder="None / describe if any..."></textarea></div>
+        <div class="form-group full"><label class="form-label">Post-procedure Notes</label>
+          <textarea class="form-textarea" id="pm_notes" rows="2" placeholder="Patient tolerated well, post-procedure vitals, plan..."></textarea></div>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
+        <button class="btn-secondary" onclick="closeModal('procedureModal')">Cancel</button>
+        <button class="btn-primary" onclick="saveProcedure()">Save Note</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== VENTILATOR MODAL ===== -->
+<div class="modal-overlay" id="ventilatorModal">
+  <div class="modal" style="max-width:540px;">
+    <div class="modal-header"><h3>💨 Ventilator Chart Entry</h3><button class="modal-close" onclick="closeModal('ventilatorModal')">✕</button></div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group"><label class="form-label">Mode</label>
+          <select class="form-select" id="vc_mode">
+            <option>SIMV</option><option>AC/VC</option><option>PRVC</option><option>PSV</option>
+            <option>CPAP</option><option>BiPAP</option><option>HFOV</option><option>HFNC</option>
+          </select></div>
+        <div class="form-group"><label class="form-label">FiO₂ (%)</label><input class="form-input" type="number" id="vc_fio2" min="21" max="100" placeholder="21–100"></div>
+        <div class="form-group"><label class="form-label">PEEP (cmH₂O)</label><input class="form-input" type="number" id="vc_peep" placeholder="e.g. 5"></div>
+        <div class="form-group"><label class="form-label">PIP (cmH₂O)</label><input class="form-input" type="number" id="vc_pip" placeholder="e.g. 18"></div>
+        <div class="form-group"><label class="form-label">RR (set/min)</label><input class="form-input" type="number" id="vc_rr" placeholder="e.g. 40"></div>
+        <div class="form-group"><label class="form-label">Tidal Volume (mL)</label><input class="form-input" type="number" id="vc_tv" placeholder="e.g. 30"></div>
+        <div class="form-group"><label class="form-label">MAP (cmH₂O)</label><input class="form-input" type="number" id="vc_map" placeholder="mean airway pressure"></div>
+        <div class="form-group"><label class="form-label">SpO₂ (%)</label><input class="form-input" type="number" id="vc_spo2" min="0" max="100" placeholder="e.g. 96"></div>
+        <div class="form-group"><label class="form-label">EtCO₂ (mmHg)</label><input class="form-input" type="number" id="vc_etco2" placeholder="e.g. 35"></div>
+        <div class="form-group full"><label class="form-label">Notes</label>
+          <textarea class="form-textarea" id="vc_notes" rows="2" placeholder="Secretions, ETT position, clinical response, ABG..."></textarea></div>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
+        <button class="btn-secondary" onclick="closeModal('ventilatorModal')">Cancel</button>
+        <button class="btn-primary" onclick="saveVentilatorReading()">Save Reading</button>
+      </div>
+    </div>
+  </div>
+</div>
 </body>
 </html>
