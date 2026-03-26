@@ -3,6 +3,14 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="
+    default-src 'self' 'unsafe-inline' 'unsafe-eval';
+    script-src 'self' 'unsafe-inline' https://www.gstatic.com https://cdnjs.cloudflare.com https://cdn.jsdelivr.net;
+    connect-src 'self' https://*.firebaseio.com wss://*.firebaseio.com https://api.anthropic.com;
+    img-src 'self' data: blob:;
+    font-src 'self' https://fonts.gstatic.com;
+    style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+  ">
 <title>Chandrawati Hospital — IPD Management System</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Playfair+Display:wght@600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
@@ -1807,11 +1815,15 @@ function loadData() {
       if(saved) {
         const u = JSON.parse(saved);
         const accounts = getAccounts();
-        const valid = u && u.id && u.role && Array.isArray(accounts) &&
-                      accounts.some(function(a){ return a.id === u.id; });
+        // Find matching account — take role from accounts[], NOT from session
+        // This prevents role escalation via localStorage tampering
+        const matchedAccount = Array.isArray(accounts) && accounts.find(function(a){ return a.id === u.id; });
+        const valid = u && u.id && u.role && matchedAccount;
         if(valid) {
-          currentUser = u;
-          currentRole = (u.role === 'admin') ? 'doctor' : u.role;
+          // Always use role from accounts[] — never trust role from session
+          const trustedRole = matchedAccount.role;
+          currentUser = { id: u.id, name: matchedAccount.name || u.name, role: trustedRole };
+          currentRole = (trustedRole === 'admin') ? 'doctor' : trustedRole;
           document.getElementById('loginScreen').style.display = 'none';
           document.getElementById('mainApp').style.display = 'block';
           const badge = document.getElementById('currentUserBadge');
@@ -2107,7 +2119,7 @@ function renderPatientDetail(id) {
   detailContent.innerHTML = `
     <div class="pt-detail-header" style="flex-shrink:0;">
       <div>
-        <div class="ptd-name">${p.name}</div>
+        <div class="ptd-name">${escapeHtml(p.name)}</div>
         <div class="ptd-meta">${p.id} · ${age} · ${p.gender} · ${p.ward} / Bed ${p.bed} · Wt: ${p.weight||'?'}kg</div>
         <div class="ptd-meta" style="margin-top:2px;">${p.consultant ? 'Dr. '+p.consultant : ''}</div>
       </div>
@@ -2496,7 +2508,7 @@ function renderNursing() {
     return `<div class="nursing-card">
       <div class="nc-hdr">
         <div>
-          <div class="nc-name">${p.name}</div>
+          <div class="nc-name">${escapeHtml(p.name)}</div>
           <div style="font-size:11px;color:var(--text2);">${p.id} · ${p.ward} · Bed ${p.bed}</div>
         </div>
         <span class="status-badge status-${a.flagStatus}">${a.flagStatus}</span>
@@ -4597,12 +4609,24 @@ if(!localStorage.getItem('cwh_accounts_v1')) {
 let currentUser = null; // { id, name, role }
 let currentRole = 'doctor';
 
+// HTML escape — prevents XSS when inserting user data into innerHTML
+function escapeHtml(str) {
+  if(!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
 // Nuclear reset — clears ALL localStorage and reloads fresh
 function clearAndReload() {
+  if(!confirm('This will clear your session and reset all local settings. Your patient data in Firebase will NOT be affected. Continue?')) return;
   try {
     localStorage.removeItem('cwh_session');
-    localStorage.removeItem('cwh_accounts_v1');
-    localStorage.removeItem('cwh_patients_v2');
+    // Note: cwh_accounts_v1 and cwh_patients_v2 are NOT cleared here
+    // to avoid accidentally wiping locally-stored patient data
     localStorage.removeItem('cwh_fb_config_v1');
   } catch(e) {}
   location.reload(true);
