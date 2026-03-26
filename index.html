@@ -4118,7 +4118,7 @@ function printDischargeCard(id) {
       This is a computer-generated discharge summary. For queries, contact the hospital directly.
     </div>
   </div>
-  <script>setTimeout(()=>window.print(), 800);<\/script>
+  <script>setTimeout(()=>window.print(), 800);<' + '/script>
   
 </body></html>`);
   printWin.document.close();
@@ -4547,7 +4547,7 @@ function printProgressNote() {
       <div class="sig-box">${get('pn_doctor')||'Dr. _______________'}<br>Consultant / Treating Physician<br>Reg. No.: _______________</div>
       <div class="sig-box">Stamp / Counter-signature<br>Chandrawati Hospital<br>Date: ${dateVal}</div>
     </div>
-  </div><script>setTimeout(()=>window.print(),500);<\/script>
+  </div><script>setTimeout(()=>window.print(),500);<' + '/script>
 </body></html>`);
   printWin.document.close();
 }
@@ -4691,7 +4691,7 @@ function printDischargeSummaryTemplate() {
       <div class="sig-box">Stamp / Signature<br>Chandrawati Hospital<br>Date: ${get('dst_dod')||'_______________'}</div>
     </div>
     <div class="footer">${HOSPITAL.name} · ${HOSPITAL.address}, ${HOSPITAL.pin} · Tel: ${HOSPITAL.phone}<br>Computer-generated discharge summary. For queries, contact the hospital.</div>
-  </div><script>setTimeout(()=>window.print(),600);<\/script>
+  </div><script>setTimeout(()=>window.print(),600);<' + '/script>
 </body></html>`);
   printWin.document.close();
 }
